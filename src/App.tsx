@@ -1,15 +1,17 @@
 import { useState } from "react";
 import reactLogo from "./assets/react.svg";
 import { invoke } from "@tauri-apps/api/core";
+import { AnalyseDuMot } from "./types";
 import "./App.css";
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+  const [mot, setMot] = useState("");
+  // Le typage pour TS sur les useState se fait juste après le useState
+  const [motAnalysé, setMotAnalysé] = useState<AnalyseDuMot | null>(null);
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
+  // Pour utiliser ma fonction, je dois la faire en asynchrone car elle appelle l'API de Rust et donc il faut que j'attende la réponse de Rust pour pouvoir set la valeur.
+  async function analyser_mot() {
+    setMotAnalysé(await invoke<AnalyseDuMot>("analyser_mot", { mot }));
   }
 
   return (
@@ -33,17 +35,19 @@ function App() {
         className="row"
         onSubmit={(e) => {
           e.preventDefault();
-          greet();
+          analyser_mot();
         }}
       >
         <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
+          id="analyser_mot-input"
+          onChange={(e) => setMot(e.currentTarget.value)}
+          placeholder="Entre un mot..."
         />
-        <button type="submit">Greet</button>
+        <button type="submit">Analyser mot</button>
       </form>
-      <p>{greetMsg}</p>
+      {/* Vu que motAnalysé peut être null, je dois vérifier s'il est présent */}
+      <p>{motAnalysé && motAnalysé.octets}</p>
+      <p>{motAnalysé && motAnalysé.caracteres}</p>
     </main>
   );
 }

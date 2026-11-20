@@ -1,0 +1,26 @@
+#!/bin/sh
+# Hook de pré-commit : refuse le commit si le formatage, clippy ou TypeScript échouent.
+# Activé automatiquement par `npm install` (script "prepare" du package.json).
+# En cas d'urgence uniquement : `git commit --no-verify` pour le contourner.
+
+# Arrête le script à la première commande en échec (le commit est alors annulé).
+set -e
+
+# Liste des fichiers ajoutés au commit, pour ne lancer que les vérifications utiles.
+fichiers=$(git diff --cached --name-only --diff-filter=ACMR)
+
+if echo "$fichiers" | grep -qE '^src-tauri/.*\.(rs|toml)$'; then
+  echo "▶ Rust : cargo fmt --check"
+  cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+
+  echo "▶ Rust : cargo clippy"
+  # -D warnings : un simple avertissement de clippy suffit à bloquer le commit.
+  cargo clippy --manifest-path src-tauri/Cargo.toml --quiet -- -D warnings
+fi
+
+if echo "$fichiers" | grep -qE '\.(ts|tsx)$|^tsconfig.*\.json$'; then
+  echo "▶ TypeScript : tsc --noEmit"
+  npx tsc --noEmit
+fi
+
+echo "✔ Vérifications passées"

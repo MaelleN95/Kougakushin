@@ -1,0 +1,9 @@
+# Fins de ligne normalisées en LF (format Unix) dans le dépôt ET sur le disque,
+# quel que soit le système. Supprime les avertissements « LF will be replaced by CRLF »
+# et garantit que les scripts shell (hooks) restent exécutables.
+* text=auto eol=lf
+
+# Fichiers binaires : jamais convertis.
+*.png binary
+*.ico binary
+*.icns binary

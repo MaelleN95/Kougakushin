@@ -1,6 +1,6 @@
 # 📜 Carnet de quêtes Rust & TypeScript
 
-## Rang actuel : 五級 (5e kyū) — 55 XP
+## Rang actuel : 五級 (5e kyū) — 65 XP
 
 Un rang exige **les deux** conditions : l'XP **et** un nombre de notions au niveau requis.
 
@@ -32,6 +32,8 @@ Ce qui **ne compte pas** : lire la doc officielle, le Rust Book, les messages de
 | 🧹 `cargo clippy` + `tsc` propres au premier passage de relecture | +10 |
 | 🎯 Question de compréhension : réponse juste **et complète** | +15 |
 | 🧠 Interro de rappel réussie (voir ci-dessous) | +20 |
+| ⚡ Défi de lecture (après un Express) : juste et complet | +20 |
+| ⚡ Défi de lecture : juste mais incomplet ou imprécis | +10 |
 
 ## Maîtrise des notions
 
@@ -78,6 +80,7 @@ Au début de certaines quêtes, Claude pose 1 à 3 questions courtes sur des not
 | Date | Quête | Mode | Aide | XP | Notes |
 |---|---|---|---|---|---|
 | 2026-11-19 | Quête 1 — `analyser_mot` | ⚔️ Quête | **Forte** (fiche Rust, fiche TS, 3 relectures correctives) | 40 + 15 (question UTF-8) = **55** | Clippy non propre au 1er passage. Question `&str` / `String` non trouvée. |
+| 2026-11-20 | Défi de lecture — hook de pré-commit | ⚡ Express | Aucune | **10** (partiel) | Parcours juste. `-D warnings` imprécis (manque : avertissement → erreur → code de sortie ≠ 0) ; lien code de sortie / annulation du commit par Git non expliqué. |
 
 ## Quêtes à venir
 

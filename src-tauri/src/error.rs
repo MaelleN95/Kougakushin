@@ -17,9 +17,33 @@ pub(crate) enum AppError {
 }
 
 // Tauri exige que l'erreur d'une commande soit sérialisable.
-// On envoie le message seul : le front reçoit une chaîne, comme avant.
+// Le front reçoit une chaîne ; le détail technique d'une erreur SQL reste côté Rust.
 impl serde::Serialize for AppError {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.to_string())
+        match self {
+            AppError::Database(_) => {
+                // Détail visible dans le terminal de `npm run tauri dev` uniquement.
+                eprintln!("[AppError] {self}");
+                serializer.serialize_str("Erreur de base de données")
+            }
+            _ => serializer.serialize_str(&self.to_string()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppError;
+
+    #[test]
+    fn masque_le_detail_sql_au_front() {
+        let json = serde_json::to_string(&AppError::Database(sqlx::Error::RowNotFound));
+        assert_eq!(json.ok().as_deref(), Some("\"Erreur de base de données\""));
+    }
+
+    #[test]
+    fn transmet_les_messages_metier() {
+        let json = serde_json::to_string(&AppError::NotFound("Leçon"));
+        assert_eq!(json.ok().as_deref(), Some("\"Leçon introuvable\""));
     }
 }

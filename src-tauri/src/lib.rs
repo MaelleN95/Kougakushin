@@ -2,7 +2,7 @@
 mod db;
 mod lessons;
 
-use lessons::list_lessons;
+use lessons::{create_lesson, delete_lesson, list_lessons, update_lesson};
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -19,7 +19,13 @@ pub fn run() {
             Ok(())
         })
         // Les commandes Tauri sont des fonctions Rust exposées à l'interface JavaScript.
-        .invoke_handler(tauri::generate_handler![analyser_mot, list_lessons])
+        .invoke_handler(tauri::generate_handler![
+            analyser_mot,
+            list_lessons,
+            create_lesson,
+            update_lesson,
+            delete_lesson
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

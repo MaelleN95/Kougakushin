@@ -1,6 +1,6 @@
 # 📜 Carnet de quêtes Rust & TypeScript
 
-## Rang actuel : 五級 (5e kyū) — 65 XP
+## Rang actuel : 五級 (5e kyū) — 115 XP
 
 Un rang exige **les deux** conditions : l'XP **et** un nombre de notions au niveau requis.
 
@@ -31,7 +31,8 @@ Ce qui **ne compte pas** : lire la doc officielle, le Rust Book, les messages de
 |---|---|
 | 🧹 `cargo clippy` + `tsc` propres au premier passage de relecture | +10 |
 | 🎯 Question de compréhension : réponse juste **et complète** | +15 |
-| 🧠 Interro de rappel réussie (voir ci-dessous) | +20 |
+| 🧠 Interro de rappel : question juste et complète (voir ci-dessous) | +20 |
+| 🧠 Interro de rappel : juste mais incomplète | +10 |
 | ⚡ Défi de lecture (après un Express) : juste et complet | +20 |
 | ⚡ Défi de lecture : juste mais incomplet ou imprécis | +10 |
 
@@ -53,15 +54,15 @@ Au début de certaines quêtes, Claude pose 1 à 3 questions courtes sur des not
 | Notion | Niveau | Dernière preuve |
 |---|---|---|
 | 🔤 UTF-8 — octets vs caractères, `.len()` / `.chars()` | 🥉 | Quête 1 (question réussie) |
-| 📦 Serde — `#[derive(Serialize)]` | 🥉 | Quête 1 (avec fiche) |
+| 📦 Serde — `#[derive(Serialize)]` | 🥉 | Phase 2 (réutilisé, mais confusion sur le rôle de chaque derive) |
 | 🧱 Struct — déclarer, instancier | 🥉 | Quête 1 (avec fiche) |
 | 📝 Syntaxe de base — `let`, types, retour implicite | 🥉 | Quête 1 (avec fiche) |
 | 🏠 Ownership — `String` / `&str`, emprunt | 🥉 | Quête 1 (notion expliquée, non comprise seule) |
-| ❓ Option & Result | — | |
+| ❓ Option & Result | 🥉 | Phase 2 (`Option<String>`, `map_err` + `?`, avec aide) |
 | 🔀 Enum & match | — | |
-| ⏳ Async / await | — | |
-| 🗄️ SQLx & migrations | — | |
-| 🧩 Modules | — | |
+| ⏳ Async / await | 🥉 | Phase 2 (`.await` dans une commande, avec aide) |
+| 🗄️ SQLx & migrations | 🥉 | Phase 2 (`query_as`, `FromRow`, empreinte des migrations) |
+| 🧩 Modules | 🥉 | Phase 2 (`mod`, `use lessons::list_lessons`) |
 | 🧪 Tests | — | |
 | 🎭 Traits | — | |
 | 🌐 HTTP (`reqwest`) | — | |
@@ -81,13 +82,16 @@ Au début de certaines quêtes, Claude pose 1 à 3 questions courtes sur des not
 |---|---|---|---|---|---|
 | 2026-11-19 | Quête 1 — `analyser_mot` | ⚔️ Quête | **Forte** (fiche Rust, fiche TS, 3 relectures correctives) | 40 + 15 (question UTF-8) = **55** | Clippy non propre au 1er passage. Question `&str` / `String` non trouvée. |
 | 2026-11-20 | Défi de lecture — hook de pré-commit | ⚡ Express | Aucune | **10** (partiel) | Parcours juste. `-D warnings` imprécis (manque : avertissement → erreur → code de sortie ≠ 0) ; lien code de sortie / annulation du commit par Git non expliqué. |
+| 2026-11-20 | Interro de rappel n°1 | 🧠 | Aucune | 10 + 20 = **30** | Q1 UTF-8 : fait juste (9 octets) mais cause du plantage absente (découpe au milieu d'un caractère). Q2 `T \| null` : juste et complète. |
+| 2026-11-21 | Phase 2 - SQLite et `list_lessons` | 🤝 Duo | **Forte** (erreurs sqlx décryptées, deux structs, `&**pool`) | 50 x 40 % = **20** | Migration et commande fonctionnelles. 2 relectures supplémentaires pour fmt et un commentaire faux. |
+| 2026-11-21 | Défi de lecture - erreur dans `db::init` | 🤝 Duo | Aucune | **0** | Déroulement normal décrit au lieu du cas d'échec ; `app_data_dir` et `create_if_missing` mal compris. |
 
 ## Quêtes à venir
 
 | Phase | Quête | Mode prévu |
 |---|---|---|
 | 1 | ~~`analyser_mot` — première commande Tauri~~ ✅ | ⚔️ Quête |
-| 2 | Brancher SQLite et créer la table `lesson` | 🤝 Duo |
+| 2 | ~~Brancher SQLite et créer la table `lesson`~~ ✅ | 🤝 Duo |
 | 3 | CRUD des leçons + erreurs propres | ⚔️ Quête |
 | 4 | Vocabulaire et grammaire (`enum`, `Option`) | ⚔️ Quête |
 | 4 | Écrans React de saisie | ⚡ Express |

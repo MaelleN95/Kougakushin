@@ -32,11 +32,50 @@ impl CreateLessonInput {
                 "Le titre de la leçon ne peut pas être vide",
             ));
         }
-        if self.date.trim().is_empty() {
+        if !is_iso_date(&self.date) {
             return Err(AppError::Validation(
-                "La date de la leçon ne peut pas être vide",
+                "La date de la leçon doit être une date réelle au format AAAA-MM-JJ",
             ));
         }
         Ok(())
+    }
+}
+
+// Vrai si `date` est une date existante écrite exactement en AAAA-MM-JJ.
+// Ce format strict garantit que le tri texte `ORDER BY date` est chronologique.
+fn is_iso_date(date: &str) -> bool {
+    match chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d") {
+        // chrono accepte "2026-1-5" : on exige que la date réécrite soit identique.
+        Ok(parsed) => parsed.format("%Y-%m-%d").to_string() == date,
+        Err(_) => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_iso_date;
+
+    #[test]
+    fn accepte_une_date_iso_reelle() {
+        assert!(is_iso_date("2026-11-18"));
+        assert!(is_iso_date("2028-02-29")); // année bissextile
+    }
+
+    #[test]
+    fn refuse_les_dates_invalides() {
+        for date in [
+            "",
+            "   ",
+            "abc",
+            "2026-1-5",
+            "2026-02-30",
+            "2026-13-01",
+            "18/11/2026",
+            " 2026-11-18",
+            "2026-11-18 ",
+            "2027-02-29",
+        ] {
+            assert!(!is_iso_date(date), "acceptée à tort : {date:?}");
+        }
     }
 }

@@ -1,5 +1,6 @@
 // Déclaration des modules : chaque `mod x;` correspond au fichier src/x.rs (comme un namespace PHP).
 mod db;
+mod error;
 mod lessons;
 
 use lessons::{create_lesson, delete_lesson, list_lessons, update_lesson};

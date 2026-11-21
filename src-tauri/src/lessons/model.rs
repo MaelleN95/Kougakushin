@@ -1,5 +1,7 @@
 // Structures de données des leçons (équivalent des entités, sans ORM).
 
+use crate::error::AppError;
+
 // Structs en pub(crate) : le code généré par #[tauri::command] les manipule hors de `lessons`.
 
 // Leçon lue en base et renvoyée au front.
@@ -20,4 +22,21 @@ pub(crate) struct CreateLessonInput {
     pub(super) title: String,
     pub(super) date: String,
     pub(super) notes: Option<String>,
+}
+
+impl CreateLessonInput {
+    // Refuse un titre ou une date vides (espaces seuls compris).
+    pub(super) fn validate(&self) -> Result<(), AppError> {
+        if self.title.trim().is_empty() {
+            return Err(AppError::Validation(
+                "Le titre de la leçon ne peut pas être vide",
+            ));
+        }
+        if self.date.trim().is_empty() {
+            return Err(AppError::Validation(
+                "La date de la leçon ne peut pas être vide",
+            ));
+        }
+        Ok(())
+    }
 }

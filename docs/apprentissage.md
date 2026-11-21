@@ -1,6 +1,6 @@
 # 📜 Carnet de quêtes Rust & TypeScript
 
-## Rang actuel : 五級 (5e kyū) - 155 XP
+## Rang actuel : 五級 (5e kyū) - 205 XP
 
 Un rang exige **les deux** conditions : l'XP **et** un nombre de notions au niveau requis.
 
@@ -87,6 +87,9 @@ Au début de certaines quêtes, Claude pose 1 à 3 questions courtes sur des not
 | 2026-11-21 | Défi de lecture - erreur dans `db::init` | 🤝 Duo | Aucune | **0** | Déroulement normal décrit au lieu du cas d'échec ; `app_data_dir` et `create_if_missing` mal compris. |
 | 2026-11-21 | Interro de rappel n°2 | 🧠 | Aucune | 10 + 20 = **30** | Q1 `map_err` : rôle juste mais conséquence absente (sans lui, le `?` ne compile pas). Q2 `pub` : juste. |
 | 2026-11-21 | Quête 3a - CRUD des leçons | ⚔️ Quête | **Solution donnée** (vérification de l'id dans `update`, demandée explicitement) | 100 x 10 % = **10** | Tests console OK. 5 relectures correctives : paramètres à plat, booléen bindé à la place du titre, `expect`, validation après l'écriture, vérification d'id inutile. `RETURNING` transposé seule dans `create`. |
+| 2026-11-21 | Interro de rappel n°3 | 🧠 | Aucune | 20 + 10 = **30** | Q1 UTF-8 : juste et complète (6 / 9 octets, taille par type de caractère). Q2 async : "promise" au lieu de `Future`, paresse des futures ignorée (rien ne s'exécute sans `.await`), cause de l'erreur de compilation absente (`map_err` n'existe pas sur un `Future`). |
+| 2026-11-21 | Quête 3b étape 1 - découpage de `lessons` en couches | ⚔️ Quête | **Solution donnée** (visibilité, nommage et commentaires corrigés par Claude à sa demande) | 100 x 10 % = **10** | Couches et tests console justes seule. Visibilité trop large (`pub` partout, `pub use` du modèle), nommage `repository::list_lessons`, en-têtes absents. Passage en mode "Claude écrit et explique" pour la soirée. |
+| 2026-11-21 | Défis de lecture - visibilité dans `lessons` | ⚡ Express | Aucune | 0 + 10 = **10** | Q1 fausse : `pub(super)` attribué au front (c'est `commands.rs` qui lit les champs ; `Deserialize` est généré dans `model.rs`), cas de `Lesson` non trouvé. Q2 partielle : ré-export cité, mais pas la condition (l'item lui-même doit être `pub(crate)`). |
 
 ## Quêtes à venir
 

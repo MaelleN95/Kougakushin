@@ -90,6 +90,7 @@ Au début de certaines quêtes, Claude pose 1 à 3 questions courtes sur des not
 | 2026-11-21 | Interro de rappel n°3 | 🧠 | Aucune | 20 + 10 = **30** | Q1 UTF-8 : juste et complète (6 / 9 octets, taille par type de caractère). Q2 async : "promise" au lieu de `Future`, paresse des futures ignorée (rien ne s'exécute sans `.await`), cause de l'erreur de compilation absente (`map_err` n'existe pas sur un `Future`). |
 | 2026-11-21 | Quête 3b étape 1 - découpage de `lessons` en couches | ⚔️ Quête | **Solution donnée** (visibilité, nommage et commentaires corrigés par Claude à sa demande) | 100 x 10 % = **10** | Couches et tests console justes seule. Visibilité trop large (`pub` partout, `pub use` du modèle), nommage `repository::list_lessons`, en-têtes absents. Passage en mode "Claude écrit et explique" pour la soirée. |
 | 2026-11-21 | Défis de lecture - visibilité dans `lessons` | ⚡ Express | Aucune | 0 + 10 = **10** | Q1 fausse : `pub(super)` attribué au front (c'est `commands.rs` qui lit les champs ; `Deserialize` est généré dans `model.rs`), cas de `Lesson` non trouvé. Q2 partielle : ré-export cité, mais pas la condition (l'item lui-même doit être `pub(crate)`). |
+| 2026-11-21 | Quête 3b étapes 2-3 - `AppError`, `validate()`, date stricte, erreurs SQL masquées | ⚡ Express (écrit par Claude, à sa demande) | - | **0** | Tests console (8/8) et unitaires (4/4) conformes. Défis de lecture sur `#[from]` et la construction de `CreateLessonInput` encore ouverts. |
 
 ## Quêtes à venir
 
@@ -98,7 +99,7 @@ Au début de certaines quêtes, Claude pose 1 à 3 questions courtes sur des not
 | 1 | ~~`analyser_mot` - première commande Tauri~~ ✅ | ⚔️ Quête |
 | 2 | ~~Brancher SQLite et créer la table `lesson`~~ ✅ | 🤝 Duo |
 | 3a | ~~CRUD des leçons (`create`, `update`, `delete`)~~ ✅ | ⚔️ Quête |
-| 3b | Erreurs propres (`enum` + `thiserror`) et validation factorisée | ⚔️ Quête |
+| 3b | ~~Couches, erreurs propres (`enum` + `thiserror`) et validation factorisée~~ ✅ | ⚔️ Quête puis ⚡ Express |
 | 4 | Vocabulaire et grammaire (`enum`, `Option`) | ⚔️ Quête |
 | 4 | Écrans React de saisie | ⚡ Express |
 | 5 | Flashcards FSRS + tests unitaires | ⚔️ Quête |

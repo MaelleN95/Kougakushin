@@ -1,6 +1,6 @@
 # 📜 Carnet de quêtes Rust & TypeScript
 
-## Rang actuel : 五級 (5e kyū) - 115 XP
+## Rang actuel : 五級 (5e kyū) - 155 XP
 
 Un rang exige **les deux** conditions : l'XP **et** un nombre de notions au niveau requis.
 
@@ -54,14 +54,14 @@ Au début de certaines quêtes, Claude pose 1 à 3 questions courtes sur des not
 | Notion | Niveau | Dernière preuve |
 |---|---|---|
 | 🔤 UTF-8 - octets vs caractères, `.len()` / `.chars()` | 🥉 | Quête 1 (question réussie) |
-| 📦 Serde - `#[derive(Serialize)]` | 🥉 | Phase 2 (réutilisé, mais confusion sur le rôle de chaque derive) |
+| 📦 Serde - `#[derive(Serialize)]` | 🥉 | Quête 3a (`Deserialize` pour la struct d'entrée, avec aide) |
 | 🧱 Struct - déclarer, instancier | 🥉 | Quête 1 (avec fiche) |
 | 📝 Syntaxe de base - `let`, types, retour implicite | 🥉 | Quête 1 (avec fiche) |
 | 🏠 Ownership - `String` / `&str`, emprunt | 🥉 | Quête 1 (notion expliquée, non comprise seule) |
-| ❓ Option & Result | 🥉 | Phase 2 (`Option<String>`, `map_err` + `?`, avec aide) |
+| ❓ Option & Result | 🥉 | Quête 3a (`fetch_optional` + `ok_or_else`, solution donnée ; `expect` sur `Option` corrigé) |
 | 🔀 Enum & match | - | |
 | ⏳ Async / await | 🥉 | Phase 2 (`.await` dans une commande, avec aide) |
-| 🗄️ SQLx & migrations | 🥉 | Phase 2 (`query_as`, `FromRow`, empreinte des migrations) |
+| 🗄️ SQLx & migrations | 🥉 | Quête 3a (`RETURNING` transposé seule dans `create`, `rows_affected`) |
 | 🧩 Modules | 🥉 | Phase 2 (`mod`, `use lessons::list_lessons`) |
 | 🧪 Tests | - | |
 | 🎭 Traits | - | |
@@ -85,6 +85,8 @@ Au début de certaines quêtes, Claude pose 1 à 3 questions courtes sur des not
 | 2026-11-20 | Interro de rappel n°1 | 🧠 | Aucune | 10 + 20 = **30** | Q1 UTF-8 : fait juste (9 octets) mais cause du plantage absente (découpe au milieu d'un caractère). Q2 `T \| null` : juste et complète. |
 | 2026-11-21 | Phase 2 - SQLite et `list_lessons` | 🤝 Duo | **Forte** (erreurs sqlx décryptées, deux structs, `&**pool`) | 50 x 40 % = **20** | Migration et commande fonctionnelles. 2 relectures supplémentaires pour fmt et un commentaire faux. |
 | 2026-11-21 | Défi de lecture - erreur dans `db::init` | 🤝 Duo | Aucune | **0** | Déroulement normal décrit au lieu du cas d'échec ; `app_data_dir` et `create_if_missing` mal compris. |
+| 2026-11-21 | Interro de rappel n°2 | 🧠 | Aucune | 10 + 20 = **30** | Q1 `map_err` : rôle juste mais conséquence absente (sans lui, le `?` ne compile pas). Q2 `pub` : juste. |
+| 2026-11-21 | Quête 3a - CRUD des leçons | ⚔️ Quête | **Solution donnée** (vérification de l'id dans `update`, demandée explicitement) | 100 x 10 % = **10** | Tests console OK. 5 relectures correctives : paramètres à plat, booléen bindé à la place du titre, `expect`, validation après l'écriture, vérification d'id inutile. `RETURNING` transposé seule dans `create`. |
 
 ## Quêtes à venir
 
@@ -92,7 +94,8 @@ Au début de certaines quêtes, Claude pose 1 à 3 questions courtes sur des not
 |---|---|---|
 | 1 | ~~`analyser_mot` - première commande Tauri~~ ✅ | ⚔️ Quête |
 | 2 | ~~Brancher SQLite et créer la table `lesson`~~ ✅ | 🤝 Duo |
-| 3 | CRUD des leçons + erreurs propres | ⚔️ Quête |
+| 3a | ~~CRUD des leçons (`create`, `update`, `delete`)~~ ✅ | ⚔️ Quête |
+| 3b | Erreurs propres (`enum` + `thiserror`) et validation factorisée | ⚔️ Quête |
 | 4 | Vocabulaire et grammaire (`enum`, `Option`) | ⚔️ Quête |
 | 4 | Écrans React de saisie | ⚡ Express |
 | 5 | Flashcards FSRS + tests unitaires | ⚔️ Quête |

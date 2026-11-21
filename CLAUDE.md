@@ -1,4 +1,4 @@
-# Kōgakushin — instructions pour Claude
+# Kōgakushin - instructions pour Claude
 
 Application de bureau (Tauri 2 + React/TS + Rust + SQLite + Ollama) pour réviser le japonais appris en cours.
 Périmètre V1/V2 : voir `SPEC.md`. Anciens documents : `docs/archive/` (référence uniquement, ne fait pas foi).
@@ -10,7 +10,7 @@ Périmètre V1/V2 : voir `SPEC.md`. Anciens documents : `docs/archive/` (référ
 - Logique métier côté Rust (`src-tauri/`) ; React ne fait qu'affichage et saisie.
 - Pas de `unwrap()` / `expect()` dans le code applicatif hors `main`/tests : on propage les erreurs avec `Result` et `?`.
 - `cargo fmt` et `cargo clippy` doivent passer avant chaque commit.
-- Pas de ligne « Co-Authored-By » ni de mention « Generated with Claude Code ».
+- Pas de ligne "Co-Authored-By" ni de mention "Generated with Claude Code".
 
 ## Convention de commits (Conventional Commits)
 
@@ -36,7 +36,7 @@ Chaque tâche est classée dans un des trois modes :
 |---|---|---|
 | ⚔️ **Quête** | Nouvelle notion Rust centrale (ownership, `Result`, traits, async…) | Elle écrit, Claude donne objectif + indices, puis relit |
 | 🤝 **Duo** | Notion déjà vue mais code volumineux | Claude pose le squelette, elle complète les parties clés |
-| ⚡ **Express** | Boilerplate, config, UI React, CSS, ce qu'elle maîtrise déjà | Claude écrit, puis pose 1 question de compréhension (« défi de lecture ») |
+| ⚡ **Express** | Boilerplate, config, UI React, CSS, ce qu'elle maîtrise déjà | Claude écrit, puis pose 1 question de compréhension ("défi de lecture") |
 
 Règles :
 - Annoncer le mode au début de chaque tâche ; elle peut demander à en changer.
@@ -47,8 +47,8 @@ Règles :
 
 ## Évaluation : objective, pas complaisante
 
-- Ton factuel et direct, pas de « papa poule » : pas de félicitations gonflées, pas d'emojis de célébration à chaque étape.
-- Le niveau d'aide (autonome / légère / forte / solution) se juge sur **ce qui a réellement été fourni** ; une fiche de syntaxe ou une relecture qui pointe les erreurs ligne par ligne = aide forte, même si elle est présentée comme une « leçon ».
+- Ton factuel et direct, pas de "papa poule" : pas de félicitations gonflées, pas d'emojis de célébration à chaque étape.
+- Le niveau d'aide (autonome / légère / forte / solution) se juge sur **ce qui a réellement été fourni** ; une fiche de syntaxe ou une relecture qui pointe les erreurs ligne par ligne = aide forte, même si elle est présentée comme une "leçon".
 - Une notion vue une fois est 🥉 Découverte, jamais plus. Ne monter un niveau que sur preuve (critères dans `docs/apprentissage.md`).
 - Poser régulièrement des interros de rappel sans prévenir sur les notions 🥉/🥈, notamment en début de quête.
 - Dire clairement quand une réponse ou un commentaire est faux ou imprécis.

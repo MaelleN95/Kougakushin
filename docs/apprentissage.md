@@ -1,17 +1,17 @@
 # 📜 Carnet de quêtes Rust & TypeScript
 
-## Rang actuel : 五級 (5e kyū) — 115 XP
+## Rang actuel : 五級 (5e kyū) - 115 XP
 
 Un rang exige **les deux** conditions : l'XP **et** un nombre de notions au niveau requis.
 
 | Rang | XP | Notions requises |
 |---|---|---|
-| 五級 5e kyū | 0 | — |
+| 五級 5e kyū | 0 | - |
 | 四級 4e kyū | 300 | 3 notions 🥈 |
 | 三級 3e kyū | 700 | 6 notions 🥈 dont 2 🥇 |
 | 二級 2e kyū | 1 200 | 10 notions 🥈 dont 5 🥇 |
 | 一級 1er kyū | 1 800 | toutes les notions Rust 🥈 dont 8 🥇 |
-| 初段 Shodan — « je lis du Rust sans peur » | 2 500 | toutes les notions 🥇 |
+| 初段 Shodan - "je lis du Rust sans peur" | 2 500 | toutes les notions 🥇 |
 
 ## Barème XP
 
@@ -20,7 +20,7 @@ L'XP d'une quête dépend de **l'aide reçue**, évaluée objectivement par Clau
 | Niveau d'aide | Définition | XP Quête (base 100) | XP Duo (base 50) |
 |---|---|---|---|
 | **Autonome** | Seulement l'énoncé + la doc officielle + les messages du compilateur | 100 % | 100 % |
-| **Aide légère** | 1 à 2 indices ciblés (« regarde le type de `.len()` ») | 70 % | 70 % |
+| **Aide légère** | 1 à 2 indices ciblés ("regarde le type de `.len()`") | 70 % | 70 % |
 | **Aide forte** | Fiche de syntaxe, erreurs pointées ligne par ligne, plusieurs relectures correctives | 40 % | 40 % |
 | **Solution donnée** | Claude a fourni le code | 10 % | 10 % |
 
@@ -53,35 +53,35 @@ Au début de certaines quêtes, Claude pose 1 à 3 questions courtes sur des not
 
 | Notion | Niveau | Dernière preuve |
 |---|---|---|
-| 🔤 UTF-8 — octets vs caractères, `.len()` / `.chars()` | 🥉 | Quête 1 (question réussie) |
-| 📦 Serde — `#[derive(Serialize)]` | 🥉 | Phase 2 (réutilisé, mais confusion sur le rôle de chaque derive) |
-| 🧱 Struct — déclarer, instancier | 🥉 | Quête 1 (avec fiche) |
-| 📝 Syntaxe de base — `let`, types, retour implicite | 🥉 | Quête 1 (avec fiche) |
-| 🏠 Ownership — `String` / `&str`, emprunt | 🥉 | Quête 1 (notion expliquée, non comprise seule) |
+| 🔤 UTF-8 - octets vs caractères, `.len()` / `.chars()` | 🥉 | Quête 1 (question réussie) |
+| 📦 Serde - `#[derive(Serialize)]` | 🥉 | Phase 2 (réutilisé, mais confusion sur le rôle de chaque derive) |
+| 🧱 Struct - déclarer, instancier | 🥉 | Quête 1 (avec fiche) |
+| 📝 Syntaxe de base - `let`, types, retour implicite | 🥉 | Quête 1 (avec fiche) |
+| 🏠 Ownership - `String` / `&str`, emprunt | 🥉 | Quête 1 (notion expliquée, non comprise seule) |
 | ❓ Option & Result | 🥉 | Phase 2 (`Option<String>`, `map_err` + `?`, avec aide) |
-| 🔀 Enum & match | — | |
+| 🔀 Enum & match | - | |
 | ⏳ Async / await | 🥉 | Phase 2 (`.await` dans une commande, avec aide) |
 | 🗄️ SQLx & migrations | 🥉 | Phase 2 (`query_as`, `FromRow`, empreinte des migrations) |
 | 🧩 Modules | 🥉 | Phase 2 (`mod`, `use lessons::list_lessons`) |
-| 🧪 Tests | — | |
-| 🎭 Traits | — | |
-| 🌐 HTTP (`reqwest`) | — | |
+| 🧪 Tests | - | |
+| 🎭 Traits | - | |
+| 🌐 HTTP (`reqwest`) | - | |
 
 ### Notions TypeScript
 
 | Notion | Niveau | Dernière preuve |
 |---|---|---|
-| 🏷️ Types & génériques — `type`, `useState<T>`, `invoke<T>` | 🥉 | Quête 1 (avec fiche) |
-| ❔ Null & narrowing — `T \| null`, `&&` | 🥉 | Quête 1 (avec explication) |
-| 🧷 Unions & littéraux | — | |
-| 📐 Props typées | — | |
+| 🏷️ Types & génériques - `type`, `useState<T>`, `invoke<T>` | 🥉 | Quête 1 (avec fiche) |
+| ❔ Null & narrowing - `T \| null`, `&&` | 🥉 | Quête 1 (avec explication) |
+| 🧷 Unions & littéraux | - | |
+| 📐 Props typées | - | |
 
 ## Journal
 
 | Date | Quête | Mode | Aide | XP | Notes |
 |---|---|---|---|---|---|
-| 2026-11-19 | Quête 1 — `analyser_mot` | ⚔️ Quête | **Forte** (fiche Rust, fiche TS, 3 relectures correctives) | 40 + 15 (question UTF-8) = **55** | Clippy non propre au 1er passage. Question `&str` / `String` non trouvée. |
-| 2026-11-20 | Défi de lecture — hook de pré-commit | ⚡ Express | Aucune | **10** (partiel) | Parcours juste. `-D warnings` imprécis (manque : avertissement → erreur → code de sortie ≠ 0) ; lien code de sortie / annulation du commit par Git non expliqué. |
+| 2026-11-19 | Quête 1 - `analyser_mot` | ⚔️ Quête | **Forte** (fiche Rust, fiche TS, 3 relectures correctives) | 40 + 15 (question UTF-8) = **55** | Clippy non propre au 1er passage. Question `&str` / `String` non trouvée. |
+| 2026-11-20 | Défi de lecture - hook de pré-commit | ⚡ Express | Aucune | **10** (partiel) | Parcours juste. `-D warnings` imprécis (manque : avertissement → erreur → code de sortie ≠ 0) ; lien code de sortie / annulation du commit par Git non expliqué. |
 | 2026-11-20 | Interro de rappel n°1 | 🧠 | Aucune | 10 + 20 = **30** | Q1 UTF-8 : fait juste (9 octets) mais cause du plantage absente (découpe au milieu d'un caractère). Q2 `T \| null` : juste et complète. |
 | 2026-11-21 | Phase 2 - SQLite et `list_lessons` | 🤝 Duo | **Forte** (erreurs sqlx décryptées, deux structs, `&**pool`) | 50 x 40 % = **20** | Migration et commande fonctionnelles. 2 relectures supplémentaires pour fmt et un commentaire faux. |
 | 2026-11-21 | Défi de lecture - erreur dans `db::init` | 🤝 Duo | Aucune | **0** | Déroulement normal décrit au lieu du cas d'échec ; `app_data_dir` et `create_if_missing` mal compris. |
@@ -90,7 +90,7 @@ Au début de certaines quêtes, Claude pose 1 à 3 questions courtes sur des not
 
 | Phase | Quête | Mode prévu |
 |---|---|---|
-| 1 | ~~`analyser_mot` — première commande Tauri~~ ✅ | ⚔️ Quête |
+| 1 | ~~`analyser_mot` - première commande Tauri~~ ✅ | ⚔️ Quête |
 | 2 | ~~Brancher SQLite et créer la table `lesson`~~ ✅ | 🤝 Duo |
 | 3 | CRUD des leçons + erreurs propres | ⚔️ Quête |
 | 4 | Vocabulaire et grammaire (`enum`, `Option`) | ⚔️ Quête |

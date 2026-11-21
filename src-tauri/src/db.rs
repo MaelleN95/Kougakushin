@@ -1,4 +1,4 @@
-// Module « db » : ouverture de la base SQLite et application des migrations.
+// Module "db" : ouverture de la base SQLite et application des migrations.
 // Équivalent Symfony : la configuration Doctrine (DATABASE_URL) + `doctrine:migrations:migrate`.
 
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager};
 // applique les migrations en attente, puis renvoie le pool de connexions.
 //
 // `async` : ouvrir un fichier et exécuter du SQL prend du temps, on attend sans bloquer.
-// `Result<…, Box<dyn Error>>` : renvoie soit le pool, soit « n'importe quelle erreur ».
+// `Result<…, Box<dyn Error>>` : renvoie soit le pool, soit "n'importe quelle erreur".
 pub async fn init(app: &AppHandle) -> Result<SqlitePool, Box<dyn std::error::Error>> {
     // Dossier propre à l'application, dérivé de l'identifier : %APPDATA%\com.kougakushin.app\
     // Le `?` à la fin : si la ligne échoue, on sort immédiatement de la fonction avec l'erreur.

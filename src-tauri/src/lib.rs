@@ -13,7 +13,7 @@ pub fn run() {
         .setup(|app| {
             // `setup` n'est pas async : block_on attend ici la fin de l'initialisation de la base.
             let pool = tauri::async_runtime::block_on(db::init(app.handle()))?;
-            // Le pool devient un « état » partagé, injectable dans n'importe quelle commande
+            // Le pool devient un "état" partagé, injectable dans n'importe quelle commande
             // (équivalent de l'injection d'un service dans un contrôleur Symfony).
             app.manage(pool);
             Ok(())

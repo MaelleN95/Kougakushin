@@ -1,7 +1,7 @@
-# Kōgakushin — Spécification simplifiée (V1)
+# Kōgakushin - Spécification simplifiée (V1)
 
 > Remplace les anciens documents (archivés dans `docs/archive/`) pour la V1.
-> Principe : **le strict utile pour réviser chaque semaine ce qui a été vu en cours.** Tout le reste va dans « Plus tard ».
+> Principe : **le strict utile pour réviser chaque semaine ce qui a été vu en cours.** Tout le reste va dans "Plus tard".
 
 ---
 
@@ -26,7 +26,7 @@ Une leçon = ce que j'ai vu à un cours.
 
 | Champ | Obligatoire |
 |---|---|
-| Titre (ex. « Marugoto L5 — la famille ») | oui |
+| Titre (ex. "Marugoto L5 - la famille") | oui |
 | Date | oui (aujourd'hui par défaut) |
 | Notes libres | non |
 
@@ -67,7 +67,7 @@ Chaque élément a un booléen **actif** (par défaut oui). Un élément inactif
   2. Japonais (kana) → français
   3. Kanji → lecture + sens (seulement si le kanji est renseigné)
 - Chaque carte a son propre suivi FSRS.
-- Session : « révisions dues aujourd'hui » + au plus **N nouvelles** par jour (N réglable, 10 par défaut). Option : réviser une leçon précise.
+- Session : "révisions dues aujourd'hui" + au plus **N nouvelles** par jour (N réglable, 10 par défaut). Option : réviser une leçon précise.
 - Je révèle la réponse, puis je note : **À revoir / Difficile / Bien / Facile**.
 - Fin de session : nombre de cartes, répartition des notes.
 
@@ -85,16 +85,16 @@ Garde-fou : après génération, l'application **signale les mots de la phrase a
 
 ### 3.5 Conversation (IA)
 
-1. Je choisis un thème (ou « surprise ») et les leçons à utiliser.
+1. Je choisis un thème (ou "surprise") et les leçons à utiliser.
 2. L'IA joue un personnage dans une mise en situation simple et me parle **uniquement en japonais**, avec mon vocabulaire et ma grammaire.
 3. Je réponds en japonais (clavier IME). Je peux demander **un indice** ou **une traduction** de son dernier message.
-4. Bouton « Terminer » → bilan en français : mes erreurs corrigées, ce qui était bien, 2-3 éléments à revoir.
+4. Bouton "Terminer" → bilan en français : mes erreurs corrigées, ce qui était bien, 2-3 éléments à revoir.
 
 La conversation n'est pas sauvegardée (seul le bilan peut l'être, optionnel).
 
 ### 3.6 Réglages
 
-- Modèle Ollama utilisé + bouton « tester la connexion ».
+- Modèle Ollama utilisé + bouton "tester la connexion".
 - Nombre de nouvelles cartes par jour.
 - Afficher/masquer le romaji.
 - Export / import JSON de toutes les données.
@@ -107,7 +107,7 @@ La conversation n'est pas sauvegardée (seul le bilan peut l'être, optionnel).
 2. Fiches kanji dédiées (lectures on/kun, vocabulaire lié).
 3. Audio : lecture TTS locale, puis réponse orale (Whisper).
 4. Statistiques et suivi de régularité.
-5. Thème « Nuit japonaise » soigné (palette et typos de `docs/archive/`), furigana.
+5. Thème "Nuit japonaise" soigné (palette et typos de `docs/archive/`), furigana.
 
 Idée ouverte : sauvegarde automatique (ex. vers un dossier synchronisé).
 
@@ -160,10 +160,10 @@ setting   (key, value)
 
 | Étape | Livrable | Utilisable ? |
 |---|---|---|
-| 1 | Projet Tauri + React qui s'ouvre, SQLite + migrations | — |
+| 1 | Projet Tauri + React qui s'ouvre, SQLite + migrations | - |
 | 2 | Leçons + vocabulaire + grammaire (CRUD, ajout rapide) | ✅ je peux saisir mes cours |
 | 3 | Flashcards FSRS | ✅ je peux réviser |
-| 4 | Connexion Ollama + test des modèles | — |
+| 4 | Connexion Ollama + test des modèles | - |
 | 5 | Exercice de traduction | ✅ |
 | 6 | Conversation | ✅ V1 complète |
 | 7 | Export/import JSON, finitions | ✅ |

@@ -1,4 +1,4 @@
-// Module « lessons » : commandes Tauri liées aux leçons.
+// Module "lessons" : commandes Tauri liées aux leçons.
 use sqlx::SqlitePool;
 
 // Définition de la structure représentant une leçon, avec sérialisation JSON et mappage SQL.

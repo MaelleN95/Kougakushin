@@ -1,55 +1,42 @@
+// Coque de l'application : en-tête et navigation entre les écrans.
+
 import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import { AnalyseDuMot } from "./types";
+import ItemsPage from "./components/ItemsPage";
+import LessonsPage from "./components/LessonsPage";
 import "./App.css";
 
-function App() {
-  const [mot, setMot] = useState("");
-  // Le typage pour TS sur les useState se fait juste après le useState
-  const [motAnalysé, setMotAnalysé] = useState<AnalyseDuMot | null>(null);
+type Page = "items" | "lessons";
 
-  // Pour utiliser ma fonction, je dois la faire en asynchrone car elle appelle l'API de Rust et donc il faut que j'attende la réponse de Rust pour pouvoir set la valeur.
-  async function analyser_mot() {
-    setMotAnalysé(await invoke<AnalyseDuMot>("analyser_mot", { mot }));
-  }
+const PAGES: { id: Page; label: string }[] = [
+  { id: "items", label: "Éléments" },
+  { id: "lessons", label: "Leçons" },
+];
+
+export default function App() {
+  const [page, setPage] = useState<Page>("items");
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          analyser_mot();
-        }}
-      >
-        <input
-          id="analyser_mot-input"
-          onChange={(e) => setMot(e.currentTarget.value)}
-          placeholder="Entre un mot..."
-        />
-        <button type="submit">Analyser mot</button>
-      </form>
-      {/* Vu que motAnalysé peut être null, je dois vérifier s'il est présent */}
-      <p>{motAnalysé && motAnalysé.octets}</p>
-      <p>{motAnalysé && motAnalysé.caracteres}</p>
-    </main>
+    <div className="min-h-screen">
+      <header className="border-b border-stone-200 bg-white">
+        <div className="mx-auto flex max-w-4xl items-center gap-6 px-6 py-3">
+          <h1 className="text-lg font-bold">Kōgakushin</h1>
+          <nav className="flex gap-1">
+            {PAGES.map((p) => (
+              <button
+                key={p.id}
+                className={page === p.id ? "btn-primary" : "btn"}
+                onClick={() => setPage(p.id)}
+              >
+                {p.label}
+              </button>
+            ))}
+          </nav>
+        </div>
+      </header>
+      {/* Chaque écran recharge ses données à l'ouverture. */}
+      <main className="mx-auto max-w-4xl p-6">
+        {page === "items" ? <ItemsPage /> : <LessonsPage />}
+      </main>
+    </div>
   );
 }
-
-export default App;

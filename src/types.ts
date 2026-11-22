@@ -1,7 +1,75 @@
-// Les typages de TS se font généralement par convention dans un fichier à part, ici types.ts, mais il est possible de le faire dans le fichier où on en a besoin. Cependant, il est préférable de les mettre dans un fichier à part pour que ce soit plus lisible et plus facile à maintenir.
+// Types TS miroirs des structs Rust (src-tauri/src/*/model.rs) : même forme que le JSON échangé.
+// Si un champ change côté Rust, il doit changer ici aussi.
 
-// Je type l'objet de sortie JSON de la fonction analyser_mot comme en Rust mais pour TS
-export type AnalyseDuMot = {
-  octets: number;
-  caracteres: number;
+// --- Leçons ---
+
+export type Lesson = {
+  id: number;
+  title: string;
+  date: string; // AAAA-MM-JJ
+  notes: string | null;
+  created_at: string; // UTC (datetime('now') de SQLite)
+};
+
+export type LessonInput = {
+  title: string;
+  date: string;
+  notes: string | null;
+};
+
+// --- Éléments ---
+
+// Union de littéraux : seules ces chaînes sont acceptées (miroir de l'enum Rust WordType).
+export type WordType =
+  | "noun"
+  | "ru_verb"
+  | "u_verb"
+  | "irregular_verb"
+  | "i_adjective"
+  | "na_adjective"
+  | "other";
+
+export type ItemKind = "vocab" | "grammar";
+
+// Union discriminée : `kind` dit quelle forme a l'objet (miroir de l'enum Rust ItemContent).
+// Après un `if (content.kind === "vocab")`, TS sait que `content.kana` existe.
+export type ItemContent =
+  | {
+      kind: "vocab";
+      kana: string;
+      romaji: string | null;
+      kanji: string | null;
+      meaning: string;
+      word_type: WordType | null;
+    }
+  | {
+      kind: "grammar";
+      title: string;
+      explanation: string;
+    };
+
+export type Item = {
+  id: number;
+  lesson_id: number;
+  active: boolean;
+  content: ItemContent;
+  example_jp: string | null;
+  example_fr: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ItemInput = {
+  lesson_id: number;
+  content: ItemContent;
+  example_jp: string | null;
+  example_fr: string | null;
+};
+
+// `?` : champ facultatif ; absent = pas de filtre sur ce critère.
+export type ItemFilter = {
+  lesson_id?: number;
+  kind?: ItemKind;
+  active?: boolean;
+  search?: string;
 };

@@ -1,6 +1,6 @@
 # 📜 Carnet de quêtes Rust & TypeScript
 
-## Rang actuel : 五級 (5e kyū) - 225 XP
+## Rang actuel : 五級 (5e kyū) - 230 XP
 
 Un rang exige **les deux** conditions : l'XP **et** un nombre de notions au niveau requis.
 
@@ -59,7 +59,7 @@ Au début de certaines quêtes, Claude pose 1 à 3 questions courtes sur des not
 | 📝 Syntaxe de base - `let`, types, retour implicite | 🥉 | Quête 1 (avec fiche) |
 | 🏠 Ownership - `String` / `&str`, emprunt | 🥉 | Quête 1 (notion expliquée, non comprise seule) |
 | ❓ Option & Result | 🥉 | Quête 3a (`fetch_optional` + `ok_or_else`, solution donnée ; `expect` sur `Option` corrigé) |
-| 🔀 Enum & match | - | |
+| 🔀 Enum & match | 🥉 | Phase 4a (`match` sur `&str` et sur un enum à données, avec fiche ; `word_type` corrigé par Claude) |
 | ⏳ Async / await | 🥉 | Phase 2 (`.await` dans une commande, avec aide) |
 | 🗄️ SQLx & migrations | 🥉 | Quête 3a (`RETURNING` transposé seule dans `create`, `rows_affected`) |
 | 🧩 Modules | 🥉 | Phase 2 (`mod`, `use lessons::list_lessons`) |
@@ -92,6 +92,7 @@ Au début de certaines quêtes, Claude pose 1 à 3 questions courtes sur des not
 | 2026-11-21 | Défis de lecture - visibilité dans `lessons` | ⚡ Express | Aucune | 0 + 10 = **10** | Q1 fausse : `pub(super)` attribué au front (c'est `commands.rs` qui lit les champs ; `Deserialize` est généré dans `model.rs`), cas de `Lesson` non trouvé. Q2 partielle : ré-export cité, mais pas la condition (l'item lui-même doit être `pub(crate)`). |
 | 2026-11-21 | Quête 3b étapes 2-3 - `AppError`, `validate()`, date stricte, erreurs SQL masquées | ⚡ Express (écrit par Claude, à sa demande) | - | **0** | Tests console (8/8) et unitaires (4/4) conformes. Défis de lecture sur `#[from]` et la construction de `CreateLessonInput` encore ouverts. |
 | 2026-11-22 | Défis de lecture - `#[from]` et champs `pub(super)` | ⚡ Express | Aucune | 10 + 10 = **20** | Q1 partielle : `#[from]` cité, mais ni le fichier (`error.rs`) ni le mécanisme (`impl From` généré, appelé par `?`). Q2 partielle : bonne frontière (`lessons`), mais ce sont les **champs** `pub(super)` qui bloquent, pas la struct. |
+| 2026-11-22 | Phase 4a - éléments (vocabulaire et grammaire) | 🤝 Duo | **Solution donnée** (correctifs écrits par Claude à sa demande) | 50 x 10 % = **5** | `from_db` et `validate` justes. `into_item` : `word_type` inconnu transformé en `None` silencieux, construction de `Item` dupliquée. Bug de Claude corrigé (`ON DELETE RESTRICT` => code 1811). |
 
 ## Quêtes à venir
 
@@ -101,7 +102,8 @@ Au début de certaines quêtes, Claude pose 1 à 3 questions courtes sur des not
 | 2 | ~~Brancher SQLite et créer la table `lesson`~~ ✅ | 🤝 Duo |
 | 3a | ~~CRUD des leçons (`create`, `update`, `delete`)~~ ✅ | ⚔️ Quête |
 | 3b | ~~Couches, erreurs propres (`enum` + `thiserror`) et validation factorisée~~ ✅ | ⚔️ Quête puis ⚡ Express |
-| 4 | Vocabulaire et grammaire (`enum`, `Option`) | ⚔️ Quête |
+| 4a | ~~Table `item`, enum `ItemContent`, `create_item` / `list_items`~~ ✅ | 🤝 Duo |
+| 4b | Modifier, activer/désactiver, supprimer et filtrer les éléments | 🤝 Duo |
 | 4 | Écrans React de saisie | ⚡ Express |
 | 5 | Flashcards FSRS + tests unitaires | ⚔️ Quête |
 | 6 | Client Ollama | 🤝 Duo |

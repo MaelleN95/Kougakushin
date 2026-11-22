@@ -73,7 +73,7 @@ Au début de certaines quêtes, Claude pose 1 à 3 questions courtes sur des not
 |---|---|---|
 | 🏷️ Types & génériques - `type`, `useState<T>`, `invoke<T>` | 🥉 | Quête 1 (avec fiche) |
 | ❔ Null & narrowing - `T \| null`, `&&` | 🥉 | Quête 1 (avec explication) |
-| 🧷 Unions & littéraux | - | |
+| 🧷 Unions & littéraux | 🥉 | Phase 4c (union discriminée `ItemContent`, `Record<WordType, string>`, expliqués en Express) |
 | 📐 Props typées | - | |
 
 ## Journal
@@ -95,6 +95,7 @@ Au début de certaines quêtes, Claude pose 1 à 3 questions courtes sur des not
 | 2026-11-22 | Phase 4a - éléments (vocabulaire et grammaire) | 🤝 Duo | **Solution donnée** (correctifs écrits par Claude à sa demande) | 50 x 10 % = **5** | `from_db` et `validate` justes. `into_item` : `word_type` inconnu transformé en `None` silencieux, construction de `Item` dupliquée. Bug de Claude corrigé (`ON DELETE RESTRICT` => code 1811). |
 | 2026-11-22 | Défi de lecture - `deny_unknown_fields` | ⚡ Express | Aucune | **10** (partiel) | Erreur et bug silencieux cités. Manque la conséquence concrète (filtre ignoré => **tous** les éléments renvoyés) et la nature de l'erreur (refus de désérialisation par Tauri, avant le code Rust). |
 | 2026-11-22 | Phase 4b - mini-quête `delete_item` | ⚔️ Quête | **Forte** (relecture : fmt, code mort recopié avec un commentaire faux, nommage) | 100 x 40 % = **40** | Repository et branchement justes seule. fmt toujours en échec après correction manuelle (lancer `cargo fmt` plutôt que corriger à la main). Notions restées 🥉 : l'énoncé désignait le modèle à recopier. |
+| 2026-11-22 | Phase 4c - écrans React | ⚡ Express commenté (écrit par Claude) | - | **0** | Vérifiés à l'écran par elle : tout fonctionne. Défi de lecture sur `Record<WordType, string>` ouvert. |
 
 ## Quêtes à venir
 
@@ -106,7 +107,7 @@ Au début de certaines quêtes, Claude pose 1 à 3 questions courtes sur des not
 | 3b | ~~Couches, erreurs propres (`enum` + `thiserror`) et validation factorisée~~ ✅ | ⚔️ Quête puis ⚡ Express |
 | 4a | ~~Table `item`, enum `ItemContent`, `create_item` / `list_items`~~ ✅ | 🤝 Duo |
 | 4b | ~~Modifier, activer/désactiver, supprimer et filtrer les éléments~~ ✅ | ⚡ Express + ⚔️ mini-quête |
-| 4 | Écrans React de saisie | ⚡ Express |
+| 4c | ~~Écrans React de saisie (leçons, éléments, filtres)~~ ✅ | ⚡ Express commenté |
 | 5 | Flashcards FSRS + tests unitaires | ⚔️ Quête |
 | 6 | Client Ollama | 🤝 Duo |
 | 7 | Exercice de traduction | 🤝 Duo |

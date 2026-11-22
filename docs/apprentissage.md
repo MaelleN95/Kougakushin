@@ -1,6 +1,6 @@
 # 📜 Carnet de quêtes Rust & TypeScript
 
-## Rang actuel : 五級 (5e kyū) - 230 XP
+## Rang actuel : 五級 (5e kyū) - 280 XP
 
 Un rang exige **les deux** conditions : l'XP **et** un nombre de notions au niveau requis.
 
@@ -93,6 +93,8 @@ Au début de certaines quêtes, Claude pose 1 à 3 questions courtes sur des not
 | 2026-11-21 | Quête 3b étapes 2-3 - `AppError`, `validate()`, date stricte, erreurs SQL masquées | ⚡ Express (écrit par Claude, à sa demande) | - | **0** | Tests console (8/8) et unitaires (4/4) conformes. Défis de lecture sur `#[from]` et la construction de `CreateLessonInput` encore ouverts. |
 | 2026-11-22 | Défis de lecture - `#[from]` et champs `pub(super)` | ⚡ Express | Aucune | 10 + 10 = **20** | Q1 partielle : `#[from]` cité, mais ni le fichier (`error.rs`) ni le mécanisme (`impl From` généré, appelé par `?`). Q2 partielle : bonne frontière (`lessons`), mais ce sont les **champs** `pub(super)` qui bloquent, pas la struct. |
 | 2026-11-22 | Phase 4a - éléments (vocabulaire et grammaire) | 🤝 Duo | **Solution donnée** (correctifs écrits par Claude à sa demande) | 50 x 10 % = **5** | `from_db` et `validate` justes. `into_item` : `word_type` inconnu transformé en `None` silencieux, construction de `Item` dupliquée. Bug de Claude corrigé (`ON DELETE RESTRICT` => code 1811). |
+| 2026-11-22 | Défi de lecture - `deny_unknown_fields` | ⚡ Express | Aucune | **10** (partiel) | Erreur et bug silencieux cités. Manque la conséquence concrète (filtre ignoré => **tous** les éléments renvoyés) et la nature de l'erreur (refus de désérialisation par Tauri, avant le code Rust). |
+| 2026-11-22 | Phase 4b - mini-quête `delete_item` | ⚔️ Quête | **Forte** (relecture : fmt, code mort recopié avec un commentaire faux, nommage) | 100 x 40 % = **40** | Repository et branchement justes seule. fmt toujours en échec après correction manuelle (lancer `cargo fmt` plutôt que corriger à la main). Notions restées 🥉 : l'énoncé désignait le modèle à recopier. |
 
 ## Quêtes à venir
 
@@ -103,7 +105,7 @@ Au début de certaines quêtes, Claude pose 1 à 3 questions courtes sur des not
 | 3a | ~~CRUD des leçons (`create`, `update`, `delete`)~~ ✅ | ⚔️ Quête |
 | 3b | ~~Couches, erreurs propres (`enum` + `thiserror`) et validation factorisée~~ ✅ | ⚔️ Quête puis ⚡ Express |
 | 4a | ~~Table `item`, enum `ItemContent`, `create_item` / `list_items`~~ ✅ | 🤝 Duo |
-| 4b | Modifier, activer/désactiver, supprimer et filtrer les éléments | 🤝 Duo |
+| 4b | ~~Modifier, activer/désactiver, supprimer et filtrer les éléments~~ ✅ | ⚡ Express + ⚔️ mini-quête |
 | 4 | Écrans React de saisie | ⚡ Express |
 | 5 | Flashcards FSRS + tests unitaires | ⚔️ Quête |
 | 6 | Client Ollama | 🤝 Duo |

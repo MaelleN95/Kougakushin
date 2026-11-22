@@ -179,6 +179,16 @@ pub(super) async fn set_active(
     .await
 }
 
+// Supprime un élément ; false si l'id n'existe pas.
+pub(super) async fn delete(pool: &SqlitePool, id: i64) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query("DELETE FROM item WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
 #[cfg(test)]
 mod tests {
     use sqlx::SqlitePool;
@@ -356,6 +366,16 @@ mod tests {
             assert_eq!(item["content"]["kind"], "grammar");
             assert_eq!(item["content"]["title"], "forme て");
             assert!(item["content"].get("kana").is_none());
+        });
+    }
+
+    #[test]
+    fn supprimer_renvoie_vrai_puis_faux() {
+        tauri::async_runtime::block_on(async {
+            let pool = seeded_pool().await;
+            assert!(super::delete(&pool, 1).await.unwrap());
+            assert!(!super::delete(&pool, 1).await.unwrap()); // déjà supprimé
+            assert_eq!(ids(&pool, ItemFilter::default()).await, vec![3, 2]);
         });
     }
 

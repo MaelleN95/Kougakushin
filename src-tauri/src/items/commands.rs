@@ -68,3 +68,13 @@ pub(crate) async fn set_item_active(
         .ok_or(AppError::NotFound("Élément"))?
         .into_item()
 }
+
+#[tauri::command]
+pub(crate) async fn delete_item(pool: State<'_, SqlitePool>, id: i64) -> Result<(), AppError> {
+    let deleted = repository::delete(pool.inner(), id).await?;
+
+    if !deleted {
+        return Err(AppError::NotFound("Élément"));
+    }
+    Ok(())
+}

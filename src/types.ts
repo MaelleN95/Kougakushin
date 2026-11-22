@@ -73,3 +73,26 @@ export type ItemFilter = {
   active?: boolean;
   search?: string;
 };
+
+// --- Révisions ---
+
+export type Direction = "fr_jp" | "jp_fr" | "kanji_read";
+
+// Carte à réviser (miroir de ReviewCard dans src-tauri/src/cards/model.rs).
+export type ReviewCard = {
+  card_id: number;
+  direction: Direction;
+  is_new: boolean;
+  kana: string;
+  romaji: string | null;
+  kanji: string | null;
+  meaning: string;
+  example_jp: string | null;
+  example_fr: string | null;
+};
+
+export type ReviewRating = "again" | "hard" | "good" | "easy";
+
+export type ReviewResult = {
+  due: string; // prochaine échéance, UTC
+};

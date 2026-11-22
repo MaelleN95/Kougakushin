@@ -3,17 +3,19 @@
 import { useState } from "react";
 import ItemsPage from "./components/ItemsPage";
 import LessonsPage from "./components/LessonsPage";
+import ReviewPage from "./components/ReviewPage";
 import "./App.css";
 
-type Page = "items" | "lessons";
+type Page = "review" | "items" | "lessons";
 
 const PAGES: { id: Page; label: string }[] = [
+  { id: "review", label: "Réviser" },
   { id: "items", label: "Éléments" },
   { id: "lessons", label: "Leçons" },
 ];
 
 export default function App() {
-  const [page, setPage] = useState<Page>("items");
+  const [page, setPage] = useState<Page>("review");
 
   return (
     <div className="min-h-screen">
@@ -35,7 +37,9 @@ export default function App() {
       </header>
       {/* Chaque écran recharge ses données à l'ouverture. */}
       <main className="mx-auto max-w-4xl p-6">
-        {page === "items" ? <ItemsPage /> : <LessonsPage />}
+        {page === "review" && <ReviewPage />}
+        {page === "items" && <ItemsPage />}
+        {page === "lessons" && <LessonsPage />}
       </main>
     </div>
   );

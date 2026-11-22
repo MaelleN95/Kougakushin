@@ -1,7 +1,16 @@
 // Appels typés aux commandes Tauri : le seul fichier qui connaît leurs noms et leurs arguments.
 
 import { invoke } from "@tauri-apps/api/core";
-import type { Item, ItemFilter, ItemInput, Lesson, LessonInput } from "./types";
+import type {
+  Item,
+  ItemFilter,
+  ItemInput,
+  Lesson,
+  LessonInput,
+  ReviewCard,
+  ReviewRating,
+  ReviewResult,
+} from "./types";
 
 export const api = {
   listLessons: () => invoke<Lesson[]>("list_lessons"),
@@ -16,6 +25,12 @@ export const api = {
   setItemActive: (id: number, active: boolean) =>
     invoke<Item>("set_item_active", { id, active }),
   deleteItem: (id: number) => invoke<null>("delete_item", { id }),
+
+  // lessonId absent => toutes les leçons.
+  getReviewSession: (lessonId?: number) =>
+    invoke<ReviewCard[]>("get_review_session", { lessonId }),
+  reviewCard: (cardId: number, rating: ReviewRating) =>
+    invoke<ReviewResult>("review_card", { cardId, rating }),
 };
 
 // Les erreurs Rust arrivent sous forme de chaîne (voir src-tauri/src/error.rs).

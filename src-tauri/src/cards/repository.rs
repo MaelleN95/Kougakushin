@@ -1,9 +1,139 @@
 // Accès SQL aux cartes.
 
-use sqlx::SqliteConnection;
+use sqlx::{SqliteConnection, SqlitePool};
 
-use super::model::{Direction, directions_for};
+use super::model::{Direction, FsrsRow, SessionRow, directions_for, state_to_db, to_db_date};
 use crate::items::ItemContent;
+
+// Les deux requêtes de session ne proposent que les cartes d'éléments actifs.
+
+// Cartes déjà vues dont l'échéance est passée (`now` au format de la base), les plus en retard d'abord.
+pub(super) async fn find_due(
+    pool: &SqlitePool,
+    lesson_id: Option<i64>,
+    now: &str,
+) -> Result<Vec<SessionRow>, sqlx::Error> {
+    sqlx::query_as::<_, SessionRow>(
+        r#"
+        SELECT c.id AS card_id, c.direction, c.state,
+               i.kana, i.romaji, i.kanji, i.meaning, i.example_jp, i.example_fr
+        FROM card c
+        JOIN item i ON i.id = c.item_id
+        WHERE i.active = 1
+          AND (?1 IS NULL OR i.lesson_id = ?1)
+          AND c.state <> 0
+          AND c.due <= ?2
+        ORDER BY c.due, c.id
+        "#,
+    )
+    .bind(lesson_id)
+    .bind(now)
+    .fetch_all(pool)
+    .await
+}
+
+// Cartes jamais vues, dans l'ordre de saisie, au plus `limit`.
+pub(super) async fn find_new(
+    pool: &SqlitePool,
+    lesson_id: Option<i64>,
+    limit: i64,
+) -> Result<Vec<SessionRow>, sqlx::Error> {
+    sqlx::query_as::<_, SessionRow>(
+        r#"
+        SELECT c.id AS card_id, c.direction, c.state,
+               i.kana, i.romaji, i.kanji, i.meaning, i.example_jp, i.example_fr
+        FROM card c
+        JOIN item i ON i.id = c.item_id
+        WHERE i.active = 1
+          AND (?1 IS NULL OR i.lesson_id = ?1)
+          AND c.state = 0
+        ORDER BY i.id, c.id
+        LIMIT ?2
+        "#,
+    )
+    .bind(lesson_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+// Nombre de cartes nouvelles révisées pour la première fois depuis `since` (format de la base).
+// review_log.state est l'état avant la révision : 0 = la carte était nouvelle.
+pub(super) async fn count_new_reviewed_since(
+    pool: &SqlitePool,
+    since: &str,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar("SELECT COUNT(*) FROM review_log WHERE state = 0 AND reviewed_at >= ?")
+        .bind(since)
+        .fetch_one(pool)
+        .await
+}
+
+// État FSRS d'une carte ; None si l'id n'existe pas.
+pub(super) async fn find_fsrs_state(
+    conn: &mut SqliteConnection,
+    card_id: i64,
+) -> Result<Option<FsrsRow>, sqlx::Error> {
+    sqlx::query_as::<_, FsrsRow>(
+        r#"
+        SELECT due, stability, difficulty, elapsed_days, scheduled_days,
+               reps, lapses, state, last_review
+        FROM card
+        WHERE id = ?
+        "#,
+    )
+    .bind(card_id)
+    .fetch_optional(conn)
+    .await
+}
+
+// Enregistre le résultat d'une révision : nouvel état de la carte + ligne d'historique.
+// À appeler dans une transaction (voir commands.rs).
+pub(super) async fn save_review(
+    conn: &mut SqliteConnection,
+    card_id: i64,
+    info: &rs_fsrs::SchedulingInfo,
+) -> Result<(), sqlx::Error> {
+    let card = &info.card;
+    sqlx::query(
+        r#"
+        UPDATE card
+        SET due = ?, stability = ?, difficulty = ?, elapsed_days = ?, scheduled_days = ?,
+            reps = ?, lapses = ?, state = ?, last_review = ?
+        WHERE id = ?
+        "#,
+    )
+    .bind(to_db_date(card.due))
+    .bind(card.stability)
+    .bind(card.difficulty)
+    .bind(card.elapsed_days)
+    .bind(card.scheduled_days)
+    .bind(card.reps)
+    .bind(card.lapses)
+    .bind(state_to_db(card.state))
+    .bind(to_db_date(card.last_review))
+    .bind(card_id)
+    .execute(&mut *conn)
+    .await?;
+
+    let log = &info.review_log;
+    sqlx::query(
+        r#"
+        INSERT INTO review_log (card_id, rating, state, elapsed_days, scheduled_days, reviewed_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        "#,
+    )
+    .bind(card_id)
+    .bind(log.rating as i64) // 1 à 4, discriminants de rs_fsrs::Rating
+    .bind(state_to_db(log.state))
+    .bind(log.elapsed_days)
+    .bind(log.scheduled_days)
+    .bind(to_db_date(log.reviewed_date))
+    .execute(&mut *conn)
+    .await?;
+
+    Ok(())
+}
 
 // Met les cartes d'un élément en accord avec son contenu :
 // crée les cartes manquantes, supprime celles qui ne sont plus voulues, garde les autres

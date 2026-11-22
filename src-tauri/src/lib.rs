@@ -5,6 +5,7 @@ mod error;
 mod items;
 mod lessons;
 
+use cards::{get_review_session, review_card};
 use items::{create_item, delete_item, list_items, set_item_active, update_item};
 use lessons::{create_lesson, delete_lesson, list_lessons, update_lesson};
 use tauri::Manager;
@@ -33,7 +34,9 @@ pub fn run() {
             create_item,
             update_item,
             set_item_active,
-            delete_item
+            delete_item,
+            get_review_session,
+            review_card
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

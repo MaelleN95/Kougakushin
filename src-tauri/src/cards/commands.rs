@@ -1,0 +1,206 @@
+// Commandes Tauri de révision : constituer une session, enregistrer une note.
+// La logique est dans des fonctions qui reçoivent `now`, pour être testable à une date fixée.
+
+use chrono::{DateTime, Utc};
+use sqlx::SqlitePool;
+use tauri::State;
+
+use super::model::{
+    ReviewCard, ReviewRating, ReviewResult, SessionRow, start_of_local_day, to_db_date,
+};
+use super::repository;
+use crate::error::AppError;
+
+// Nouvelles cartes au plus par jour (SPEC.md 3.3 ; deviendra un réglage).
+const NEW_CARDS_PER_DAY: i64 = 10;
+
+// Cartes à réviser maintenant, puis les nouvelles dans la limite du jour.
+pub(super) async fn build_session(
+    pool: &SqlitePool,
+    lesson_id: Option<i64>,
+    now: DateTime<Utc>,
+) -> Result<Vec<ReviewCard>, AppError> {
+    let due = repository::find_due(pool, lesson_id, &to_db_date(now)).await?;
+
+    let since = to_db_date(start_of_local_day(now));
+    let already_new = repository::count_new_reviewed_since(pool, &since).await?;
+    let remaining_new = (NEW_CARDS_PER_DAY - already_new).max(0);
+    let new = repository::find_new(pool, lesson_id, remaining_new).await?;
+
+    // chain : les cartes dues d'abord, puis les nouvelles.
+    due.into_iter()
+        .chain(new)
+        .map(SessionRow::into_review_card)
+        .collect()
+}
+
+// Planifie la carte avec FSRS selon la note, puis enregistre le tout en une transaction.
+pub(super) async fn apply_review(
+    pool: &SqlitePool,
+    card_id: i64,
+    rating: ReviewRating,
+    now: DateTime<Utc>,
+) -> Result<ReviewResult, AppError> {
+    let mut tx = pool.begin().await?;
+
+    let row = repository::find_fsrs_state(&mut tx, card_id)
+        .await?
+        .ok_or(AppError::NotFound("Carte"))?;
+    let info = rs_fsrs::FSRS::default().next(row.to_fsrs(now)?, now, rating.to_fsrs());
+    repository::save_review(&mut tx, card_id, &info).await?;
+
+    tx.commit().await?;
+    Ok(ReviewResult {
+        due: to_db_date(info.card.due),
+    })
+}
+
+// JS : invoke("get_review_session") ou invoke("get_review_session", { lessonId: 3 }).
+#[tauri::command]
+pub(crate) async fn get_review_session(
+    pool: State<'_, SqlitePool>,
+    lesson_id: Option<i64>,
+) -> Result<Vec<ReviewCard>, AppError> {
+    build_session(pool.inner(), lesson_id, Utc::now()).await
+}
+
+// JS : invoke("review_card", { cardId: 12, rating: "good" }).
+#[tauri::command]
+pub(crate) async fn review_card(
+    pool: State<'_, SqlitePool>,
+    card_id: i64,
+    rating: ReviewRating,
+) -> Result<ReviewResult, AppError> {
+    apply_review(pool.inner(), card_id, rating, Utc::now()).await
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{DateTime, Duration, TimeZone, Utc};
+    use sqlx::SqlitePool;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    use super::super::model::ReviewRating;
+    use super::{apply_review, build_session};
+    use crate::error::AppError;
+
+    // Midi UTC : loin de minuit, le "jour" local est le même en France.
+    fn noon() -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 11, 22, 12, 0, 0).unwrap()
+    }
+
+    // Base en mémoire : `count` mots actifs (2 cartes nouvelles chacun) + 1 mot inactif.
+    async fn pool_with_words(count: i64) -> SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        sqlx::query("INSERT INTO lesson (title, date) VALUES ('L1', '2026-11-18')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        for n in 0..=count {
+            let active = if n < count { 1 } else { 0 }; // le dernier est inactif
+            sqlx::query(
+                "INSERT INTO item (lesson_id, kind, active, kana, meaning) VALUES (1, 'vocab', ?, 'た', 'x')",
+            )
+            .bind(active)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        sqlx::query(
+            "INSERT INTO card (item_id, direction) SELECT id, 'fr_jp' FROM item;
+             INSERT INTO card (item_id, direction) SELECT id, 'jp_fr' FROM item;",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool
+    }
+
+    // Ids des cartes proposées, dans l'ordre.
+    async fn session_ids(pool: &SqlitePool, now: DateTime<Utc>) -> Vec<i64> {
+        build_session(pool, None, now)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|card| {
+                serde_json::to_value(card).unwrap()["card_id"]
+                    .as_i64()
+                    .unwrap()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn nouvelles_cartes_limitees_a_10_par_jour_et_elements_inactifs_exclus() {
+        tauri::async_runtime::block_on(async {
+            let pool = pool_with_words(6).await; // 12 cartes actives, 2 inactives
+            let ids = session_ids(&pool, noon()).await;
+            assert_eq!(ids.len(), 10);
+            // Les cartes du mot inactif (item 7 => cartes 7 et 14) ne sont jamais proposées.
+            assert!(!ids.contains(&7) && !ids.contains(&14));
+        });
+    }
+
+    #[test]
+    fn une_revision_planifie_la_carte_et_consomme_le_quota_du_jour() {
+        tauri::async_runtime::block_on(async {
+            let pool = pool_with_words(6).await;
+            let result = apply_review(&pool, 1, ReviewRating::Good, noon())
+                .await
+                .unwrap();
+            assert!(
+                serde_json::to_value(&result).unwrap()["due"]
+                    .as_str()
+                    .unwrap()
+                    > "2026-11-22 12:00:00"
+            );
+
+            let (state, reps): (i64, i64) =
+                sqlx::query_as("SELECT state, reps FROM card WHERE id = 1")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_ne!(state, 0); // n'est plus nouvelle
+            assert_eq!(reps, 1);
+            let logs: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM review_log WHERE card_id = 1 AND state = 0",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(logs, 1);
+
+            // Une nouvelle carte vue aujourd'hui : il en reste 9 à proposer, sans la carte 1.
+            let ids = session_ids(&pool, noon() + Duration::seconds(1)).await;
+            assert_eq!(ids.len(), 9);
+            assert!(!ids.contains(&1));
+        });
+    }
+
+    #[test]
+    fn a_revoir_ramene_la_carte_dans_les_cartes_dues() {
+        tauri::async_runtime::block_on(async {
+            let pool = pool_with_words(1).await;
+            apply_review(&pool, 1, ReviewRating::Again, noon())
+                .await
+                .unwrap();
+            // Le lendemain, elle est due : proposée en premier, avant les nouvelles.
+            let ids = session_ids(&pool, noon() + Duration::days(1)).await;
+            assert_eq!(ids.first(), Some(&1));
+        });
+    }
+
+    #[test]
+    fn carte_inconnue() {
+        tauri::async_runtime::block_on(async {
+            let pool = pool_with_words(1).await;
+            let error = apply_review(&pool, 999, ReviewRating::Good, noon()).await;
+            assert!(matches!(error, Err(AppError::NotFound("Carte"))));
+        });
+    }
+}

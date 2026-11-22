@@ -1,6 +1,6 @@
 # 📜 Carnet de quêtes Rust & TypeScript
 
-## Rang actuel : 五級 (5e kyū) - 205 XP
+## Rang actuel : 五級 (5e kyū) - 225 XP
 
 Un rang exige **les deux** conditions : l'XP **et** un nombre de notions au niveau requis.
 
@@ -91,6 +91,7 @@ Au début de certaines quêtes, Claude pose 1 à 3 questions courtes sur des not
 | 2026-11-21 | Quête 3b étape 1 - découpage de `lessons` en couches | ⚔️ Quête | **Solution donnée** (visibilité, nommage et commentaires corrigés par Claude à sa demande) | 100 x 10 % = **10** | Couches et tests console justes seule. Visibilité trop large (`pub` partout, `pub use` du modèle), nommage `repository::list_lessons`, en-têtes absents. Passage en mode "Claude écrit et explique" pour la soirée. |
 | 2026-11-21 | Défis de lecture - visibilité dans `lessons` | ⚡ Express | Aucune | 0 + 10 = **10** | Q1 fausse : `pub(super)` attribué au front (c'est `commands.rs` qui lit les champs ; `Deserialize` est généré dans `model.rs`), cas de `Lesson` non trouvé. Q2 partielle : ré-export cité, mais pas la condition (l'item lui-même doit être `pub(crate)`). |
 | 2026-11-21 | Quête 3b étapes 2-3 - `AppError`, `validate()`, date stricte, erreurs SQL masquées | ⚡ Express (écrit par Claude, à sa demande) | - | **0** | Tests console (8/8) et unitaires (4/4) conformes. Défis de lecture sur `#[from]` et la construction de `CreateLessonInput` encore ouverts. |
+| 2026-11-22 | Défis de lecture - `#[from]` et champs `pub(super)` | ⚡ Express | Aucune | 10 + 10 = **20** | Q1 partielle : `#[from]` cité, mais ni le fichier (`error.rs`) ni le mécanisme (`impl From` généré, appelé par `?`). Q2 partielle : bonne frontière (`lessons`), mais ce sont les **champs** `pub(super)` qui bloquent, pas la struct. |
 
 ## Quêtes à venir
 

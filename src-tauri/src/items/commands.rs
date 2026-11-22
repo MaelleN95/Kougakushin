@@ -5,6 +5,7 @@ use tauri::State;
 
 use super::model::{CreateItemInput, Item, ItemFilter, ItemRow};
 use super::repository;
+use crate::cards;
 use crate::error::{AppError, is_foreign_key_violation};
 
 // Une clé étrangère violée à l'écriture d'un élément = lesson_id inexistant.
@@ -36,10 +37,16 @@ pub(crate) async fn create_item(
 ) -> Result<Item, AppError> {
     input.validate()?;
 
-    repository::insert(pool.inner(), &input)
+    // Transaction : l'élément et ses cartes sont enregistrés ensemble, ou rien du tout.
+    // Si une erreur fait sortir avant commit(), `tx` est abandonnée et annulée automatiquement.
+    let mut tx = pool.begin().await?;
+    let row = repository::insert(&mut *tx, &input)
         .await
-        .map_err(lesson_not_found_or)?
-        .into_item()
+        .map_err(lesson_not_found_or)?;
+    cards::sync_for_item(&mut tx, row.id(), &input.content).await?;
+    tx.commit().await?;
+
+    row.into_item()
 }
 
 #[tauri::command]
@@ -50,11 +57,16 @@ pub(crate) async fn update_item(
 ) -> Result<Item, AppError> {
     input.validate()?;
 
-    repository::update(pool.inner(), id, &input)
+    // Même principe que create_item : élément et cartes modifiés ensemble.
+    let mut tx = pool.begin().await?;
+    let row = repository::update(&mut *tx, id, &input)
         .await
         .map_err(lesson_not_found_or)?
-        .ok_or(AppError::NotFound("Élément"))?
-        .into_item()
+        .ok_or(AppError::NotFound("Élément"))?;
+    cards::sync_for_item(&mut tx, row.id(), &input.content).await?;
+    tx.commit().await?;
+
+    row.into_item()
 }
 
 #[tauri::command]

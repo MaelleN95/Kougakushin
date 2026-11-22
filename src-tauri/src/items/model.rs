@@ -97,6 +97,11 @@ pub(super) struct ItemRow {
 }
 
 impl ItemRow {
+    // Id de la ligne, pour générer les cartes avant la conversion en Item.
+    pub(super) fn id(&self) -> i64 {
+        self.id
+    }
+
     // Ligne plate => Item typé. Un kind inconnu ou un champ obligatoire absent => InvalidData.
     pub(super) fn into_item(self) -> Result<Item, AppError> {
         // Seul `content` dépend du type : le match ne produit que lui.

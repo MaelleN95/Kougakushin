@@ -1,6 +1,6 @@
 // Accès SQL aux éléments. Renvoie des lignes brutes (`ItemRow`) et les erreurs sqlx telles quelles.
 
-use sqlx::SqlitePool;
+use sqlx::{Executor, Sqlite, SqlitePool};
 
 use super::model::{CreateItemInput, ItemContent, ItemFilter, ItemRow};
 
@@ -93,10 +93,14 @@ pub(super) async fn find_all(
 }
 
 // Insère un élément et renvoie la ligne enregistrée.
-pub(super) async fn insert(
-    pool: &SqlitePool,
+// `executor` : le pool, ou une connexion de transaction (voir commands.rs).
+pub(super) async fn insert<'c, E>(
+    executor: E,
     input: &CreateItemInput,
-) -> Result<ItemRow, sqlx::Error> {
+) -> Result<ItemRow, sqlx::Error>
+where
+    E: Executor<'c, Database = Sqlite>,
+{
     let columns = content_columns(&input.content);
 
     sqlx::query_as::<_, ItemRow>(
@@ -119,16 +123,19 @@ pub(super) async fn insert(
     .bind(columns.explanation)
     .bind(&input.example_jp)
     .bind(&input.example_fr)
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await
 }
 
 // Remplace tous les champs d'un élément (le type peut changer) ; None si l'id n'existe pas.
-pub(super) async fn update(
-    pool: &SqlitePool,
+pub(super) async fn update<'c, E>(
+    executor: E,
     id: i64,
     input: &CreateItemInput,
-) -> Result<Option<ItemRow>, sqlx::Error> {
+) -> Result<Option<ItemRow>, sqlx::Error>
+where
+    E: Executor<'c, Database = Sqlite>,
+{
     let columns = content_columns(&input.content);
 
     sqlx::query_as::<_, ItemRow>(
@@ -154,7 +161,7 @@ pub(super) async fn update(
     .bind(&input.example_jp)
     .bind(&input.example_fr)
     .bind(id)
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await
 }
 

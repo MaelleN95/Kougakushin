@@ -1,4 +1,5 @@
 // Déclaration des modules : chaque `mod x;` correspond au fichier src/x.rs (comme un namespace PHP).
+mod cards;
 mod db;
 mod error;
 mod items;

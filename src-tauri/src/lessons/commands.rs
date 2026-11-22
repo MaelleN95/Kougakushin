@@ -6,7 +6,7 @@ use tauri::State;
 
 use super::model::{CreateLessonInput, Lesson};
 use super::repository;
-use crate::error::AppError;
+use crate::error::{AppError, is_foreign_key_violation};
 
 // Le `?` convertit les sqlx::Error en AppError grâce au #[from].
 
@@ -55,7 +55,15 @@ pub(crate) async fn update_lesson(
 
 #[tauri::command]
 pub(crate) async fn delete_lesson(pool: State<'_, SqlitePool>, id: i64) -> Result<(), AppError> {
-    let deleted = repository::delete(pool.inner(), id).await?;
+    let deleted = repository::delete(pool.inner(), id)
+        .await
+        .map_err(|e| match e {
+            // ON DELETE RESTRICT de la table item.
+            e if is_foreign_key_violation(&e) => {
+                AppError::Conflict("Impossible de supprimer une leçon qui contient des éléments")
+            }
+            e => AppError::from(e),
+        })?;
 
     if !deleted {
         return Err(AppError::NotFound("Leçon"));

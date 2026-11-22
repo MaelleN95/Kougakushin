@@ -14,6 +14,23 @@ pub(crate) enum AppError {
     // Donnée refusée avant toute écriture en base.
     #[error("{0}")]
     Validation(&'static str),
+
+    // Action impossible dans l'état actuel (ex. supprimer une leçon non vide).
+    #[error("{0}")]
+    Conflict(&'static str),
+
+    // Ligne en base qui ne respecte pas le modèle Rust ; le paramètre nomme le champ fautif.
+    #[error("Donnée incohérente en base : {0}")]
+    InvalidData(&'static str),
+}
+
+// Vrai si la base a refusé l'opération à cause d'une clé étrangère
+// (id de leçon inexistant à l'insertion, ou leçon encore référencée à la suppression).
+pub(crate) fn is_foreign_key_violation(error: &sqlx::Error) -> bool {
+    match error {
+        sqlx::Error::Database(db_error) => db_error.is_foreign_key_violation(),
+        _ => false,
+    }
 }
 
 // Tauri exige que l'erreur d'une commande soit sérialisable.

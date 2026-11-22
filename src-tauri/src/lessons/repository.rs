@@ -72,3 +72,37 @@ pub(super) async fn delete(pool: &SqlitePool, id: i64) -> Result<bool, sqlx::Err
 
     Ok(result.rows_affected() > 0)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::error::is_foreign_key_violation;
+
+    // Base en mémoire avec les vraies migrations : une leçon (id 1) qui contient un élément.
+    async fn pool_with_non_empty_lesson() -> sqlx::SqlitePool {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        sqlx::query("INSERT INTO lesson (title, date) VALUES ('L1', '2026-11-18')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO item (lesson_id, kind, title, explanation) VALUES (1, 'grammar', 't', 'e')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool
+    }
+
+    #[test]
+    fn supprimer_une_lecon_non_vide_viole_la_cle_etrangere() {
+        tauri::async_runtime::block_on(async {
+            let pool = pool_with_non_empty_lesson().await;
+            let error = super::delete(&pool, 1).await.unwrap_err();
+            assert!(
+                is_foreign_key_violation(&error),
+                "erreur inattendue : {error:?}"
+            );
+        });
+    }
+}

@@ -1,8 +1,10 @@
 // Déclaration des modules : chaque `mod x;` correspond au fichier src/x.rs (comme un namespace PHP).
 mod db;
 mod error;
+mod items;
 mod lessons;
 
+use items::{create_item, list_items};
 use lessons::{create_lesson, delete_lesson, list_lessons, update_lesson};
 use tauri::Manager;
 
@@ -25,7 +27,9 @@ pub fn run() {
             list_lessons,
             create_lesson,
             update_lesson,
-            delete_lesson
+            delete_lesson,
+            list_items,
+            create_item
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

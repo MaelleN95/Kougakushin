@@ -47,7 +47,7 @@ impl WordType {
 
 // Ce qui change selon le type d'élément. En JSON : { "kind": "vocab", "kana": ..., ... }
 #[derive(serde::Serialize, serde::Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum ItemContent {
     Vocab {
         kana: String,
@@ -77,7 +77,7 @@ pub(crate) struct Item {
 
 // Ligne brute de la table `item` : une colonne = un champ, tout ce qui peut être NULL est Option.
 // Ne sort jamais du module : on la convertit en `Item` avec `into_item`.
-#[derive(sqlx::FromRow)]
+#[derive(Debug, sqlx::FromRow)]
 pub(super) struct ItemRow {
     id: i64,
     lesson_id: i64,
@@ -135,8 +135,39 @@ impl ItemRow {
     }
 }
 
-// Données envoyées par le front pour créer un élément.
+// Type d'élément, pour filtrer la liste.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ItemKind {
+    Vocab,
+    Grammar,
+}
+
+impl ItemKind {
+    // Valeur de la colonne `kind` (doit correspondre au CHECK de la migration).
+    pub(super) fn as_str(self) -> &'static str {
+        match self {
+            ItemKind::Vocab => "vocab",
+            ItemKind::Grammar => "grammar",
+        }
+    }
+}
+
+// Critères de `list_items` ; un champ absent = pas de filtre sur ce critère.
+// default : `{}` est accepté. deny_unknown_fields : une faute de frappe ("lessonId") est
+// refusée au lieu d'être ignorée en silence (ce qui renverrait tout sans filtrer).
+#[derive(Default, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct ItemFilter {
+    pub(super) lesson_id: Option<i64>,
+    pub(super) kind: Option<ItemKind>,
+    pub(super) active: Option<bool>,
+    pub(super) search: Option<String>, // cherché dans tous les champs texte
+}
+
+// Données envoyées par le front pour créer ou modifier un élément.
 #[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct CreateItemInput {
     pub(super) lesson_id: i64,
     pub(super) content: ItemContent,
@@ -273,5 +304,26 @@ mod tests {
             row.into_item(),
             Err(AppError::InvalidData("meaning"))
         ));
+    }
+}
+
+#[cfg(test)]
+mod deserialization_tests {
+    use super::{CreateItemInput, ItemFilter};
+
+    #[test]
+    fn filtre_vide_accepte() {
+        assert!(serde_json::from_str::<ItemFilter>("{}").is_ok());
+    }
+
+    #[test]
+    fn champ_inconnu_refuse() {
+        // Faute de frappe camelCase dans le filtre.
+        assert!(serde_json::from_str::<ItemFilter>(r#"{"lessonId": 1}"#).is_err());
+        // Champ de grammaire glissé dans un vocabulaire.
+        let input = r#"{"lesson_id": 1, "example_jp": null, "example_fr": null,
+            "content": {"kind": "vocab", "kana": "た", "romaji": null, "kanji": null,
+                        "meaning": "x", "word_type": null, "title": "intrus"}}"#;
+        assert!(serde_json::from_str::<CreateItemInput>(input).is_err());
     }
 }

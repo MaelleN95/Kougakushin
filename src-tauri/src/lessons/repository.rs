@@ -79,7 +79,12 @@ mod tests {
 
     // Base en mémoire avec les vraies migrations : une leçon (id 1) qui contient un élément.
     async fn pool_with_non_empty_lesson() -> sqlx::SqlitePool {
-        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        // Une seule connexion : en mémoire, chaque connexion aurait sa propre base vide.
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
         sqlx::query("INSERT INTO lesson (title, date) VALUES ('L1', '2026-11-18')")
             .execute(&pool)

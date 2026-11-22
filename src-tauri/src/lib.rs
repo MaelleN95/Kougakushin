@@ -4,7 +4,7 @@ mod error;
 mod items;
 mod lessons;
 
-use items::{create_item, list_items};
+use items::{create_item, list_items, set_item_active, update_item};
 use lessons::{create_lesson, delete_lesson, list_lessons, update_lesson};
 use tauri::Manager;
 
@@ -29,7 +29,9 @@ pub fn run() {
             update_lesson,
             delete_lesson,
             list_items,
-            create_item
+            create_item,
+            update_item,
+            set_item_active
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

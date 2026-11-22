@@ -96,6 +96,7 @@ Au début de certaines quêtes, Claude pose 1 à 3 questions courtes sur des not
 | 2026-11-22 | Défi de lecture - `deny_unknown_fields` | ⚡ Express | Aucune | **10** (partiel) | Erreur et bug silencieux cités. Manque la conséquence concrète (filtre ignoré => **tous** les éléments renvoyés) et la nature de l'erreur (refus de désérialisation par Tauri, avant le code Rust). |
 | 2026-11-22 | Phase 4b - mini-quête `delete_item` | ⚔️ Quête | **Forte** (relecture : fmt, code mort recopié avec un commentaire faux, nommage) | 100 x 40 % = **40** | Repository et branchement justes seule. fmt toujours en échec après correction manuelle (lancer `cargo fmt` plutôt que corriger à la main). Notions restées 🥉 : l'énoncé désignait le modèle à recopier. |
 | 2026-11-22 | Phase 4c - écrans React | ⚡ Express commenté (écrit par Claude) | - | **0** | Vérifiés à l'écran par elle : tout fonctionne. Défi de lecture sur `Record<WordType, string>` ouvert. |
+| 2026-11-22 | Phase 5 - flashcards FSRS | ⚡ Express commenté (écrit par Claude, mini-quête `Direction::from_db` déclinée) | - | **0** | Transactions, génériques `Executor`, CASCADE, rs-fsrs, dates UTC. 34 tests Rust. Non vérifié à l'écran. |
 
 ## Quêtes à venir
 
@@ -108,7 +109,7 @@ Au début de certaines quêtes, Claude pose 1 à 3 questions courtes sur des not
 | 4a | ~~Table `item`, enum `ItemContent`, `create_item` / `list_items`~~ ✅ | 🤝 Duo |
 | 4b | ~~Modifier, activer/désactiver, supprimer et filtrer les éléments~~ ✅ | ⚡ Express + ⚔️ mini-quête |
 | 4c | ~~Écrans React de saisie (leçons, éléments, filtres)~~ ✅ | ⚡ Express commenté |
-| 5 | Flashcards FSRS + tests unitaires | ⚔️ Quête |
+| 5 | ~~Flashcards FSRS (cartes, planification, écran de révision) + tests~~ ✅ | ⚡ Express commenté |
 | 6 | Client Ollama | 🤝 Duo |
 | 7 | Exercice de traduction | 🤝 Duo |
 | 8 | Conversation | 🤝 Duo |

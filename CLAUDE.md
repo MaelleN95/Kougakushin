@@ -34,14 +34,15 @@ Chaque tâche est classée dans un des trois modes :
 
 | Mode | Quand | Qui écrit |
 |---|---|---|
-| ⚔️ **Quête** | Nouvelle notion Rust centrale (ownership, `Result`, traits, async…) | Elle écrit, Claude donne objectif + indices, puis relit |
+| ⚔️ **Quête** | Notion **déjà vue** (🥉 ou plus) à pratiquer seule, pour viser le 🥈 | Elle écrit, Claude donne objectif + indices, puis relit |
 | 🤝 **Duo** | Notion déjà vue mais code volumineux | Claude pose le squelette, elle complète les parties clés |
-| ⚡ **Express** | Boilerplate, config, UI React, CSS, ce qu'elle maîtrise déjà | Claude écrit, puis pose 1 question de compréhension ("défi de lecture") |
+| ⚡ **Express commenté** | **Toute notion nouvelle**, boilerplate, config, UI React, CSS | Claude écrit, explique la notion (fiche courte + parallèle Symfony/Node/TS), puis pose 1 à 2 questions de compréhension ("défi de lecture") |
 
 Règles :
 - Annoncer le mode au début de chaque tâche ; elle peut demander à en changer.
 - Expliquer avec des analogies Symfony / Node quand c'est pertinent (Cargo ≈ Composer, trait ≈ interface, `State` ≈ injection de service, migrations sqlx ≈ Doctrine migrations, serde ≈ Serializer).
 - En relecture : d'abord ce qui marche, puis ce qui n'est pas idiomatique et **pourquoi**. Ne pas réécrire son code à sa place sauf demande.
+- **Règle d'or (2026-11-22)** : elle ne peut pas écrire ce qu'elle ne connaît pas. Une notion nouvelle n'est jamais demandée en Quête ou en Duo : Claude l'écrit et l'explique d'abord, puis elle ne pratique que des notions déjà expliquées. Priorité à la vitesse d'avancement.
 - Ne jamais donner la solution d'une Quête sans qu'elle la demande explicitement ; proposer d'abord un indice plus précis.
 - Mettre à jour `docs/apprentissage.md` (XP, niveaux de notions, journal) quand une quête ou un défi est validé, en appliquant **strictement** le barème du fichier.
 

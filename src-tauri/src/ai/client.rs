@@ -122,6 +122,38 @@ impl Ollama {
         Ok(body.models.into_iter().map(|m| m.name).collect())
     }
 
+    // Traduction japonais => français par le modèle dédié (TranslateGemma, décision D22).
+    // Format de consigne imposé par la page du modèle sur ollama.com (deux lignes vides avant
+    // le texte). `num_gpu: 0` : il tourne sur le processeur, pour laisser la carte graphique au
+    // modèle principal ; sinon Ollama les échange à chaque appel (+16 s mesurées).
+    pub(crate) async fn translate_ja_to_fr(
+        &self,
+        model: &str,
+        text: &str,
+    ) -> Result<String, AppError> {
+        let content = format!(
+            "You are a professional Japanese (ja) to French (fr) translator. Your goal is to \
+             accurately convey the meaning and nuances of the original Japanese text while \
+             adhering to French grammar, vocabulary, and cultural sensitivities.\n\
+             Produce only the French translation, without any additional explanations or \
+             commentary. Please translate the following Japanese text into French:\n\n\n{text}"
+        );
+        let body = serde_json::json!({
+            "model": model,
+            "stream": false,
+            "options": { "temperature": 0, "num_gpu": 0 },
+            "messages": [{ "role": "user", "content": content }],
+        });
+        let response = self
+            .http
+            .post(format!("{}/api/chat", self.base_url))
+            .json(&body)
+            .send()
+            .await?;
+        let chat: ChatResponse = read_json(response).await?;
+        Ok(chat.message.content.trim().to_string())
+    }
+
     // Envoie une demande et lit la réponse comme un `T`.
     // `format` : Ollama contraint le modèle à produire un JSON conforme au schéma.
     // `think: false` : pas de phase de "réflexion" affichée, réponse plus rapide.

@@ -9,7 +9,7 @@ mod settings;
 
 use ai::{
     check_ollama, correct_translation, end_conversation, generate_translation,
-    list_conversation_themes, reply_conversation, start_conversation,
+    list_conversation_themes, reply_conversation, start_conversation, translate_message,
 };
 use cards::{get_review_session, review_card};
 use items::{create_item, delete_item, list_items, set_item_active, update_item};
@@ -67,7 +67,8 @@ pub fn run() {
             list_conversation_themes,
             start_conversation,
             reply_conversation,
-            end_conversation
+            end_conversation,
+            translate_message
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

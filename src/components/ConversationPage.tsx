@@ -14,7 +14,13 @@ import type {
 
 // Message affiché : celui de l'IA garde ses aides (traduction, indice) et leur état d'affichage.
 type Entry =
-  | { role: "assistant"; message: AssistantMessage; showFrench: boolean; showHint: boolean }
+  | {
+      role: "assistant";
+      message: AssistantMessage;
+      french: string | null; // traduction, chargée au premier clic puis gardée
+      showFrench: boolean;
+      showHint: boolean;
+    }
   | { role: "user"; text: string };
 
 // Historique pour Rust : seul le japonais de l'IA est renvoyé (pas ses aides).
@@ -57,7 +63,7 @@ export default function ConversationPage() {
   }
 
   function assistantEntry(message: AssistantMessage): Entry {
-    return { role: "assistant", message, showFrench: false, showHint: false };
+    return { role: "assistant", message, french: null, showFrench: false, showHint: false };
   }
 
   async function startConversation() {
@@ -106,6 +112,27 @@ export default function ConversationPage() {
     } finally {
       setWaiting(null);
     }
+  }
+
+  // Bouton "Traduction" : au premier clic, on demande la traduction au traducteur dédié
+  // (environ 1 à 2 s), puis on la garde pour les clics suivants.
+  async function toggleFrench(index: number) {
+    const entry = entries[index];
+    if (entry.role !== "assistant") return;
+    if (entry.french === null) {
+      try {
+        const french = await api.translateMessage(entry.message.japanese);
+        setEntries((list) =>
+          list.map((e, i) =>
+            i === index && e.role === "assistant" ? { ...e, french, showFrench: true } : e,
+          ),
+        );
+      } catch (e) {
+        setError(errorMessage(e));
+      }
+      return;
+    }
+    toggle(index, "showFrench");
   }
 
   // Affiche ou masque une aide d'un message de l'IA.
@@ -216,6 +243,12 @@ export default function ConversationPage() {
         </button>
       </div>
       <p className="text-sm text-stone-500">{start.scenario}</p>
+      {start.limited_vocabulary && (
+        <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          Vocabulaire encore limité (moins de 30 mots actifs) : la conversation restera très
+          simple, et l'IA adaptera la situation à ce que tu sais dire.
+        </p>
+      )}
 
       <div className="space-y-3">
         {entries.map((entry, i) =>
@@ -227,12 +260,14 @@ export default function ConversationPage() {
                   Hors de ta base : {entry.message.unknown_words.join(", ")}
                 </p>
               )}
-              {entry.showFrench && <p className="text-sm text-stone-600">{entry.message.french}</p>}
+              {entry.showFrench && entry.french && (
+                <p className="text-sm text-stone-600">{entry.french}</p>
+              )}
               {entry.showHint && (
                 <p className="text-sm text-stone-600">Indice : {entry.message.hint}</p>
               )}
               <div className="flex gap-2">
-                <button className="btn" onClick={() => toggle(i, "showFrench")}>
+                <button className="btn" onClick={() => toggleFrench(i)}>
                   {entry.showFrench ? "Masquer la traduction" : "Traduction"}
                 </button>
                 <button className="btn" onClick={() => toggle(i, "showHint")}>

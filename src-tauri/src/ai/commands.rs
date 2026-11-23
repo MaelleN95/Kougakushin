@@ -14,6 +14,8 @@ pub(crate) struct OllamaStatus {
     models: Vec<String>,
     // Le modèle choisi dans les réglages est-il téléchargé ?
     configured_model_installed: bool,
+    // Le traducteur choisi est-il téléchargé ?
+    translation_model_installed: bool,
 }
 
 // "Tester la connexion" : Ollama répond-il, et avec quels modèles ?
@@ -24,10 +26,11 @@ pub(crate) async fn check_ollama(
 ) -> Result<OllamaStatus, AppError> {
     let version = ollama.version().await?;
     let models = ollama.installed_models().await?;
-    let configured = settings::load(pool.inner()).await?.ollama_model;
+    let settings = settings::load(pool.inner()).await?;
     Ok(OllamaStatus {
         version,
-        configured_model_installed: models.contains(&configured),
+        configured_model_installed: models.contains(&settings.ollama_model),
+        translation_model_installed: models.contains(&settings.translation_model),
         models,
     })
 }

@@ -6,9 +6,12 @@ use crate::error::AppError;
 const NEW_CARDS_PER_DAY: &str = "new_cards_per_day";
 const SHOW_ROMAJI: &str = "show_romaji";
 const OLLAMA_MODEL: &str = "ollama_model";
+const TRANSLATION_MODEL: &str = "translation_model";
 
 // Modèle retenu après le comparatif du 2026-11-23 (consignes respectées, corrections justes).
 const DEFAULT_OLLAMA_MODEL: &str = "gemma4:e4b-it-q4_K_M";
+// Traducteur dédié japonais / français (D22), retenu après mesure du 2026-11-23.
+const DEFAULT_TRANSLATION_MODEL: &str = "translategemma:4b";
 
 // Bornes du nombre de nouvelles cartes par jour.
 const MAX_NEW_CARDS_PER_DAY: i64 = 100;
@@ -18,7 +21,8 @@ const MAX_NEW_CARDS_PER_DAY: i64 = 100;
 pub(crate) struct Settings {
     pub(crate) new_cards_per_day: i64, // lu par `cards`
     pub(super) show_romaji: bool,
-    pub(crate) ollama_model: String, // lu par `ai`
+    pub(crate) ollama_model: String,      // lu par `ai`
+    pub(crate) translation_model: String, // lu par `ai`
 }
 
 // Valeurs utilisées tant que l'utilisatrice n'a rien modifié.
@@ -28,6 +32,7 @@ impl Default for Settings {
             new_cards_per_day: 10,
             show_romaji: true,
             ollama_model: DEFAULT_OLLAMA_MODEL.to_string(),
+            translation_model: DEFAULT_TRANSLATION_MODEL.to_string(),
         }
     }
 }
@@ -41,6 +46,11 @@ impl Settings {
         }
         if self.ollama_model.trim().is_empty() {
             return Err(AppError::Validation("Le modèle d'IA ne peut pas être vide"));
+        }
+        if self.translation_model.trim().is_empty() {
+            return Err(AppError::Validation(
+                "Le modèle de traduction ne peut pas être vide",
+            ));
         }
         Ok(())
     }
@@ -61,6 +71,7 @@ impl Settings {
                         .map_err(|_| AppError::InvalidData("show_romaji"))?;
                 }
                 OLLAMA_MODEL => settings.ollama_model = value,
+                TRANSLATION_MODEL => settings.translation_model = value,
                 _ => {} // clé inconnue : ignorée
             }
         }
@@ -68,11 +79,12 @@ impl Settings {
     }
 
     // Réglages => lignes à enregistrer.
-    pub(super) fn to_pairs(&self) -> [(&'static str, String); 3] {
+    pub(super) fn to_pairs(&self) -> [(&'static str, String); 4] {
         [
             (NEW_CARDS_PER_DAY, self.new_cards_per_day.to_string()),
             (SHOW_ROMAJI, self.show_romaji.to_string()),
             (OLLAMA_MODEL, self.ollama_model.clone()),
+            (TRANSLATION_MODEL, self.translation_model.clone()),
         ]
     }
 }
@@ -87,6 +99,7 @@ mod tests {
             new_cards_per_day: 25,
             show_romaji: false,
             ollama_model: "autre:modele".to_string(),
+            translation_model: "autre:traducteur".to_string(),
         };
         let pairs = settings
             .to_pairs()

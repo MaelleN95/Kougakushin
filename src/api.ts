@@ -63,6 +63,8 @@ export const api = {
     invoke<AssistantMessage>("reply_conversation", { lessonIds, themeId, history }),
   endConversation: (lessonIds: number[], themeId: string, history: ChatTurn[]) =>
     invoke<ConversationSummary>("end_conversation", { lessonIds, themeId, history }),
+  // Traduction japonais => français par le traducteur dédié.
+  translateMessage: (text: string) => invoke<string>("translate_message", { text }),
 };
 
 // Les erreurs Rust arrivent sous forme de chaîne (voir src-tauri/src/error.rs).

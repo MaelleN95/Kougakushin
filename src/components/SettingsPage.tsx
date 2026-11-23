@@ -53,9 +53,10 @@ export default function SettingsPage() {
 
   // Modèles proposés : ceux d'Ollama, plus le modèle enregistré s'il n'est pas installé.
   const models = ollama?.models ?? [];
-  const modelOptions = models.includes(settings.ollama_model)
-    ? models
-    : [settings.ollama_model, ...models];
+  const withCurrent = (current: string) =>
+    models.includes(current) ? models : [current, ...models];
+  const modelOptions = withCurrent(settings.ollama_model);
+  const translatorOptions = withCurrent(settings.translation_model);
 
   return (
     <section className="space-y-6">
@@ -106,6 +107,26 @@ export default function SettingsPage() {
           </select>
         </label>
 
+        <label className="block space-y-1">
+          <span className="text-sm font-medium">Traducteur (japonais vers français)</span>
+          <select
+            className="field w-auto"
+            value={settings.translation_model}
+            onChange={(e) => setSettings({ ...settings, translation_model: e.target.value })}
+          >
+            {translatorOptions.map((model) => (
+              <option key={model} value={model}>
+                {model}
+                {!models.includes(model) && " (non installé)"}
+              </option>
+            ))}
+          </select>
+          <span className="block text-xs text-stone-500">
+            Traduit les phrases des exercices et les messages de la conversation. Il tourne sur le
+            processeur, pour laisser la carte graphique au modèle principal.
+          </span>
+        </label>
+
         <div className="space-y-1">
           <button type="button" className="btn" disabled={testing} onClick={testOllama}>
             {testing ? "Test en cours..." : "Tester la connexion"}
@@ -115,6 +136,8 @@ export default function SettingsPage() {
               Ollama {ollama.version} répond, {ollama.models.length} modèle(s) installé(s).
               {!ollama.configured_model_installed &&
                 " Le modèle enregistré n'est pas installé : choisis-en un autre ou télécharge-le."}
+              {!ollama.translation_model_installed &&
+                " Le traducteur enregistré n'est pas installé : choisis-en un autre ou télécharge-le."}
             </p>
           )}
           {ollamaError && <p className="error">{ollamaError}</p>}

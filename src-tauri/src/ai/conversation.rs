@@ -19,8 +19,9 @@ const MAX_ATTEMPTS: usize = 3;
 // Messages transmis à l'IA : les plus récents seulement (consignes plus courtes, réponses rapides).
 const MAX_TURNS: usize = 20;
 
-// Premier message (invisible) qui lance la conversation.
-const OPENING: &str = "Commence la conversation : salue-moi et lance la situation.";
+// En dessous de ce nombre de mots actifs, l'écran prévient que les conversations seront très
+// simples (décision D19). Valeur choisie par Claude, modifiable.
+const LIMITED_VOCABULARY: usize = 30;
 
 // Situations du quotidien pour débutante (décision D14).
 struct Theme {
@@ -28,6 +29,7 @@ struct Theme {
     label: &'static str,
     role: &'static str,     // qui joue l'IA (consigne)
     scenario: &'static str, // présentation de la situation, montrée à l'élève
+    opening: &'static str,  // ce que doit faire le premier message de l'IA, selon son rôle
 }
 
 const THEMES: [Theme; 6] = [
@@ -36,38 +38,54 @@ const THEMES: [Theme; 6] = [
         label: "Au café",
         role: "un serveur sympathique dans un petit café de Tokyo ; l'élève est cliente",
         scenario: "Tu entres dans un café à Tokyo. Le serveur vient prendre ta commande.",
+        opening: "accueille ta cliente comme un serveur et invite-la à commander",
     },
     Theme {
         id: "introduction",
         label: "Se présenter",
         role: "un étudiant japonais qui rencontre l'élève pour la première fois",
         scenario: "Tu rencontres un étudiant japonais pour la première fois.",
+        opening: "salue-la et présente-toi en une phrase",
     },
     Theme {
         id: "invitation",
         label: "Inviter un ami",
         role: "un ami japonais de l'élève ; vous organisez une sortie ensemble",
         scenario: "Tu discutes avec un ami japonais pour organiser une sortie.",
+        opening: "salue ton amie et propose-lui une activité simple",
     },
     Theme {
         id: "shopping",
         label: "Faire des courses",
         role: "le vendeur d'une petite épicerie de quartier ; l'élève vient acheter quelque chose",
         scenario: "Tu fais des courses dans une petite épicerie. Le vendeur t'accueille.",
+        opening: "accueille ta cliente comme un vendeur",
     },
     Theme {
         id: "directions",
         label: "Demander son chemin",
         role: "un passant aimable dans une rue de Tokyo ; l'élève cherche un lieu",
         scenario: "Tu es perdue dans Tokyo et tu demandes ton chemin à un passant.",
+        // C'est elle qui aborde le passant : il ne lance pas la conversation de lui-même.
+        opening: "elle vient de t'interpeller dans la rue : réponds-lui brièvement et \
+                  montre-toi prêt à l'aider",
     },
     Theme {
         id: "weekend",
         label: "Parler du week-end",
         role: "un collègue japonais ; vous parlez de ce que vous faites le week-end",
         scenario: "Tu parles du week-end avec un collègue japonais.",
+        opening: "salue-la et demande-lui ce qu'elle fait ce week-end",
     },
 ];
+
+// Premier message (invisible) qui lance la conversation, propre à la situation.
+fn opening(theme: &Theme) -> String {
+    format!(
+        "Commence la conversation. Ton premier message : {}.",
+        theme.opening
+    )
+}
 
 // "surprise" ou absent : tirage au sort.
 fn find_theme(theme_id: Option<&str>) -> Result<&'static Theme, AppError> {
@@ -92,16 +110,15 @@ pub(crate) struct ThemeInfo {
 #[derive(Debug, serde::Deserialize)]
 struct AiMessage {
     japanese: String,
-    french: String,
     hint: String,
     words: Vec<String>,
 }
 
-// Message de l'IA envoyé au front : traduction et indice affichés seulement à la demande.
+// Message de l'IA envoyé au front. L'indice est affiché à la demande ; la traduction est
+// demandée à part au traducteur dédié (commande translate_message), seulement si on clique.
 #[derive(Debug, serde::Serialize)]
 pub(crate) struct AssistantMessage {
     japanese: String,
-    french: String,
     hint: String,
     unknown_words: Vec<String>, // garde-fou, comme pour la traduction
 }
@@ -111,6 +128,8 @@ pub(crate) struct ConversationStart {
     theme_id: &'static str,
     theme_label: &'static str,
     scenario: &'static str,
+    // Moins de LIMITED_VOCABULARY mots actifs : l'écran prévient (D19).
+    limited_vocabulary: bool,
     message: AssistantMessage,
 }
 
@@ -138,11 +157,13 @@ fn conversation_system_prompt(theme: &Theme, knowledge: &Knowledge, rejected: &[
          Déroulement :\n\
          - Dans `japanese`, tu parles UNIQUEMENT japonais : 1 ou 2 phrases courtes et naturelles, \
          comme un vrai Japonais (sujet omis quand il est évident), qui font avancer la situation.\n\
+         - Chaque message a un sens clair dans la situation et répond logiquement à ce qu'elle \
+         vient de dire. Si son vocabulaire ne permet pas vraiment la situation, adapte la \
+         situation à ce qu'elle sait dire, sans sortir de ton personnage, plutôt que d'écrire \
+         des phrases sans lien entre elles.\n\
          - Termine le plus souvent par une question simple, pour la faire parler.\n\
          - Ne corrige pas ses erreurs pendant la conversation : le bilan s'en chargera. \
          Si tu ne comprends pas, demande-lui gentiment de reformuler, en japonais simple.\n\
-         - `french` : traduction française naturelle de TON message japonais (jamais de celui \
-         de l'élève).\n\
          - `hint` : en français, une piste de réponse courte, avec 1 à 3 mots japonais utiles \
          tirés de sa liste.\n{}",
         theme.role,
@@ -166,11 +187,10 @@ fn message_schema() -> serde_json::Value {
         "type": "object",
         "properties": {
             "japanese": { "type": "string" },
-            "french": { "type": "string" },
             "hint": { "type": "string" },
             "words": { "type": "array", "items": { "type": "string" } }
         },
-        "required": ["japanese", "french", "hint", "words"]
+        "required": ["japanese", "hint", "words"]
     })
 }
 
@@ -258,7 +278,7 @@ async fn next_message(
 ) -> Result<AssistantMessage, AppError> {
     // Le message d'ouverture précède toujours l'historique : l'IA a ainsi un premier message
     // de l'élève auquel répondre, ce que certains modèles exigent.
-    let mut turns = vec![ChatTurn::user(OPENING)];
+    let mut turns = vec![ChatTurn::user(opening(theme))];
     turns.extend_from_slice(history);
 
     let mut rejected: Vec<String> = Vec::new();
@@ -281,7 +301,6 @@ async fn next_message(
         let unknown = unknown_words(&reply.japanese, &reply.words, knowledge);
         let message = AssistantMessage {
             japanese: reply.japanese.trim().to_string(),
-            french: reply.french.trim().to_string(),
             hint: reply.hint.trim().to_string(),
             unknown_words: unknown.clone(),
         };
@@ -432,8 +451,24 @@ pub(crate) async fn start_conversation(
         theme_id: theme.id,
         theme_label: theme.label,
         scenario: theme.scenario,
+        limited_vocabulary: knowledge.words.len() < LIMITED_VOCABULARY,
         message,
     })
+}
+
+// Traduction en français d'un message de l'IA, à la demande (bouton "Traduction").
+// Faite par le traducteur dédié, pas par le modèle de conversation (D22).
+#[tauri::command]
+pub(crate) async fn translate_message(
+    pool: State<'_, SqlitePool>,
+    ollama: State<'_, Ollama>,
+    text: String,
+) -> Result<String, AppError> {
+    if text.trim().is_empty() {
+        return Err(AppError::Validation("Rien à traduire."));
+    }
+    let translator = settings::load(pool.inner()).await?.translation_model;
+    ollama.translate_ja_to_fr(&translator, text.trim()).await
 }
 
 // `history` : tous les messages affichés (ceux de l'IA en japonais seulement), le mien en dernier.
@@ -554,6 +589,63 @@ mod tests {
         assert!(prompt.contains("- のむ (飲む) : boire"));
         assert!(prompt.contains("飲む (pas のむ)"));
         assert!(prompt.contains("n'utilise pas ces mots, absents de sa liste : みせ"));
+    }
+
+    // Vocabulaire réel de la développeuse au 2026-11-23 (8 mots) sur la situation la plus difficile.
+    // cargo test -- --ignored essai_reel_petit_vocabulaire --nocapture
+    #[test]
+    #[ignore]
+    fn essai_reel_petit_vocabulaire() {
+        tauri::async_runtime::block_on(async {
+            let ollama = Ollama::new().unwrap();
+            let model = &super::super::knowledge_prompt::test_model();
+            let w = |kana: &str, kanji: Option<&str>, meaning: &str| KnownWord {
+                kana: kana.into(),
+                kanji: kanji.map(String::from),
+                meaning: meaning.into(),
+            };
+            let k = Knowledge {
+                words: vec![
+                    w("たべる", Some("食べる"), "manger"),
+                    w("わたし", Some("私"), "je; moi"),
+                    w("ともだち", None, "ami"),
+                    w("すし", None, "sushi"),
+                    w("さかな", Some("魚"), "poisson"),
+                    w("ばんごはん", None, "dîner"),
+                    w("あさごはん", None, "petit-déjeuner"),
+                ],
+                grammar: vec![crate::items::KnownGrammar {
+                    title: "〜ています".into(),
+                    explanation: "Action en cours".into(),
+                }],
+                focus: vec![],
+            };
+            let theme = find_theme(Some("directions")).unwrap();
+            let first = next_message(&ollama, model, theme, &k, &[]).await.unwrap();
+            let fr = ollama
+                .translate_ja_to_fr("translategemma:4b", &first.japanese)
+                .await
+                .unwrap();
+            println!(
+                "IA 1 : {} => {fr} | inconnus {:?}",
+                first.japanese, first.unknown_words
+            );
+            let history = [
+                turn(Role::Assistant, &first.japanese),
+                turn(Role::User, "すし を 食べて います"),
+            ];
+            let second = next_message(&ollama, model, theme, &k, &history)
+                .await
+                .unwrap();
+            let fr = ollama
+                .translate_ja_to_fr("translategemma:4b", &second.japanese)
+                .await
+                .unwrap();
+            println!(
+                "IA 2 : {} => {fr} | inconnus {:?}",
+                second.japanese, second.unknown_words
+            );
+        });
     }
 
     // Cas signalé le 2026-11-23 : phrase juste (kanji, sans espaces) déclarée fautive.

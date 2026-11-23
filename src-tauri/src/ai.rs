@@ -13,5 +13,6 @@ pub(crate) use client::Ollama;
 pub(crate) use commands::check_ollama;
 pub(crate) use conversation::{
     end_conversation, list_conversation_themes, reply_conversation, start_conversation,
+    translate_message,
 };
 pub(crate) use translation::{correct_translation, generate_translation};

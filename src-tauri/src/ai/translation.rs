@@ -30,7 +30,6 @@ pub(crate) enum TranslationDirection {
 #[derive(Debug, serde::Deserialize)]
 struct GeneratedSentence {
     japanese: String,
-    french: String,
     // Mots porteurs de sens à leur forme du dictionnaire : sert au garde-fou.
     words: Vec<String>,
 }
@@ -65,12 +64,15 @@ pub(crate) struct Correction {
 
 fn generation_system_prompt(knowledge: &Knowledge) -> String {
     format!(
-        "Tu es un professeur de japonais expérimenté, de langue maternelle japonaise, exigeant \n         sur le naturel. Ton élève est une francophone qui apprend en cours. \n         Tu crées UNE phrase japonaise et sa traduction française.
-\n         Qualité attendue :
-\n         - La phrase doit sonner naturelle pour un Japonais, comme dans une vraie conversation. \n         Omets le sujet quand il est évident, comme le font les Japonais : n'écris わたし は que \n         si la phrase en a vraiment besoin (contraste, présentation).
-\n         - Exploite au mieux ses connaissances : combine plusieurs mots et points de grammaire, \n         4 à 10 mots, pas seulement « A は B を V ます ».
-\n         - La traduction française est naturelle aussi (pas du mot à mot).
-{}",
+        "Tu es un professeur de japonais expérimenté, de langue maternelle japonaise, exigeant \
+         sur le naturel. Ton élève est une francophone qui apprend en cours. \
+         Tu crées UNE phrase japonaise (sa traduction française est faite à part).\n\
+         Qualité attendue :\n\
+         - La phrase doit sonner naturelle pour un Japonais, comme dans une vraie conversation. \
+         Omets le sujet quand il est évident, comme le font les Japonais : n'écris わたし は que \
+         si la phrase en a vraiment besoin (contraste, présentation).\n\
+         - Exploite au mieux ses connaissances : combine plusieurs mots et points de grammaire, \
+         4 à 10 mots, pas seulement « A は B を V ます ».\n{}",
         knowledge_rules(knowledge)
     )
 }
@@ -127,10 +129,9 @@ fn generation_schema() -> serde_json::Value {
         "type": "object",
         "properties": {
             "japanese": { "type": "string" },
-            "french": { "type": "string" },
             "words": { "type": "array", "items": { "type": "string" } }
         },
-        "required": ["japanese", "french", "words"]
+        "required": ["japanese", "words"]
     })
 }
 
@@ -205,17 +206,43 @@ fn correction_schema() -> serde_json::Value {
 
 // --- Logique (sans Tauri, testable) ---
 
+// Modèles utilisés : `model` invente la phrase, `translator` la traduit en français (D22).
+struct Models<'a> {
+    model: &'a str,
+    translator: &'a str,
+}
+
 async fn generate_with(
     ollama: &Ollama,
-    model: &str,
+    models: &Models<'_>,
     knowledge: &Knowledge,
     direction: TranslationDirection,
     previous: &[String],
 ) -> Result<TranslationExercise, AppError> {
+    let japanese_sentence = generate_japanese(ollama, models.model, knowledge, previous).await?;
+    // Traduction par le modèle dédié : la version française correspond à la phrase réellement
+    // générée (le modèle principal se trompait parfois de phrase à traduire).
+    let french = ollama
+        .translate_ja_to_fr(models.translator, &japanese_sentence.0)
+        .await?;
+    Ok(TranslationExercise {
+        direction,
+        japanese: japanese_sentence.0,
+        french,
+        unknown_words: japanese_sentence.1,
+    })
+}
+
+// Phrase japonaise + ses mots inconnus : la première sans intrus, sinon la meilleure des essais.
+async fn generate_japanese(
+    ollama: &Ollama,
+    model: &str,
+    knowledge: &Knowledge,
+    previous: &[String],
+) -> Result<(String, Vec<String>), AppError> {
     let system = generation_system_prompt(knowledge);
     let mut rejected: Vec<String> = Vec::new();
-    // Meilleure phrase obtenue (le moins de mots inconnus), gardée si aucun essai n'est parfait.
-    let mut best: Option<TranslationExercise> = None;
+    let mut best: Option<(String, Vec<String>)> = None;
 
     for _ in 0..MAX_ATTEMPTS {
         let user = generation_user_prompt(knowledge, previous, &rejected);
@@ -234,24 +261,14 @@ async fn generate_with(
             other => other?,
         };
         let unknown = unknown_words(&sentence.japanese, &sentence.words, knowledge);
-        let exercise = TranslationExercise {
-            direction,
-            japanese: sentence.japanese.trim().to_string(),
-            french: sentence.french.trim().to_string(),
-            unknown_words: unknown.clone(),
-        };
+        let japanese = sentence.japanese.trim().to_string();
         if unknown.is_empty() {
-            return Ok(exercise);
+            return Ok((japanese, unknown));
         }
-        log::info!(
-            "Phrase rejetée (mots inconnus : {unknown:?}) : {}",
-            exercise.japanese
-        );
-        let is_better = best
-            .as_ref()
-            .is_none_or(|b| exercise.unknown_words.len() < b.unknown_words.len());
+        log::info!("Phrase rejetée (mots inconnus : {unknown:?}) : {japanese}");
+        let is_better = best.as_ref().is_none_or(|b| unknown.len() < b.1.len());
         if is_better {
-            best = Some(exercise);
+            best = Some((japanese, unknown.clone()));
         }
         rejected = unknown;
     }
@@ -293,14 +310,18 @@ pub(crate) async fn generate_translation(
             "Aucun mot de vocabulaire actif dans ces leçons.",
         ));
     }
-    let model = settings::load(pool.inner()).await?.ollama_model;
+    let settings = settings::load(pool.inner()).await?;
+    let models = Models {
+        model: &settings.ollama_model,
+        translator: &settings.translation_model,
+    };
 
     // Seules les phrases les plus récentes sont transmises (consignes plus courtes).
     let mut previous = previous.unwrap_or_default();
     let skip = previous.len().saturating_sub(MAX_PREVIOUS);
     previous.drain(..skip);
 
-    generate_with(ollama.inner(), &model, &knowledge, direction, &previous).await
+    generate_with(ollama.inner(), &models, &knowledge, direction, &previous).await
 }
 
 #[tauri::command]
@@ -368,7 +389,6 @@ mod tests {
     fn sentence(japanese: &str, words: &[&str]) -> GeneratedSentence {
         GeneratedSentence {
             japanese: japanese.into(),
-            french: "x".into(),
             words: words.iter().map(|w| w.to_string()).collect(),
         }
     }
@@ -411,6 +431,14 @@ mod tests {
     fn troncature_par_caracteres_et_non_par_octets() {
         assert_eq!(truncate("たべる", 2), "たべ...");
         assert_eq!(truncate("たべる", 3), "たべる");
+    }
+
+    // Modèles des essais réels : le modèle testé + le traducteur par défaut.
+    fn test_models(model: &str) -> Models<'_> {
+        Models {
+            model,
+            translator: "translategemma:4b",
+        }
     }
 
     // Vocabulaire réaliste de débutante, pour juger le niveau des phrases.
@@ -477,7 +505,7 @@ mod tests {
             for _ in 0..5 {
                 let e = generate_with(
                     &ollama,
-                    model,
+                    &test_models(model),
                     &realistic_knowledge(),
                     TranslationDirection::FrJp,
                     &previous,
@@ -519,7 +547,7 @@ mod tests {
             let model = &super::super::knowledge_prompt::test_model();
             let exercise = generate_with(
                 &ollama,
-                model,
+                &test_models(model),
                 &knowledge(),
                 TranslationDirection::FrJp,
                 &[],

@@ -109,6 +109,7 @@ export type Settings = {
   new_cards_per_day: number;
   show_romaji: boolean;
   ollama_model: string;
+  translation_model: string; // traducteur dédié japonais => français
 };
 
 // --- IA ---
@@ -118,6 +119,7 @@ export type OllamaStatus = {
   version: string;
   models: string[]; // modèles téléchargés
   configured_model_installed: boolean;
+  translation_model_installed: boolean;
 };
 
 // --- Exercice de traduction ---
@@ -144,10 +146,10 @@ export type Correction = {
 
 export type ThemeInfo = { id: string; label: string };
 
-// Message de l'IA : traduction et indice sont affichés seulement à la demande.
+// Message de l'IA : l'indice est affiché à la demande ; la traduction est demandée à part
+// (api.translateMessage), seulement si on clique.
 export type AssistantMessage = {
   japanese: string;
-  french: string;
   hint: string;
   unknown_words: string[];
 };
@@ -156,6 +158,7 @@ export type ConversationStart = {
   theme_id: string;
   theme_label: string;
   scenario: string; // présentation de la situation, en français
+  limited_vocabulary: boolean; // peu de mots actifs : conversations très simples
   message: AssistantMessage;
 };
 

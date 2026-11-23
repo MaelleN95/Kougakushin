@@ -119,3 +119,23 @@ export type OllamaStatus = {
   models: string[]; // modèles téléchargés
   configured_model_installed: boolean;
 };
+
+// --- Exercice de traduction ---
+
+export type TranslationDirection = "fr_jp" | "jp_fr";
+
+// Exercice généré par l'IA ; renvoyé tel quel à Rust pour la correction.
+export type TranslationExercise = {
+  direction: TranslationDirection;
+  japanese: string;
+  french: string;
+  unknown_words: string[]; // mots ou kanji hors de ta base (garde-fou)
+};
+
+export type Verdict = "correct" | "almost" | "wrong";
+
+export type Correction = {
+  verdict: Verdict;
+  correction: string;
+  explanation: string;
+};

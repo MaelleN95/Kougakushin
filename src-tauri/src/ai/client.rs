@@ -36,6 +36,25 @@ struct ErrorResponse {
     error: String,
 }
 
+#[derive(serde::Deserialize)]
+struct ChatResponse {
+    message: ChatMessage,
+}
+
+#[derive(serde::Deserialize)]
+struct ChatMessage {
+    content: String,
+}
+
+// Une demande à l'IA : consignes (system), question (user), forme JSON imposée.
+pub(crate) struct ChatRequest<'a> {
+    pub(crate) model: &'a str,
+    pub(crate) system: &'a str,
+    pub(crate) user: &'a str,
+    pub(crate) schema: serde_json::Value, // schéma JSON que la réponse doit respecter
+    pub(crate) temperature: f64,          // 0 = déterministe, 1 = très varié
+}
+
 impl Ollama {
     pub(crate) fn new() -> Result<Ollama, AppError> {
         Ollama::with_base_url(DEFAULT_BASE_URL)
@@ -76,6 +95,39 @@ impl Ollama {
     pub(crate) async fn installed_models(&self) -> Result<Vec<String>, AppError> {
         let body: TagsResponse = self.get_json("/api/tags").await?;
         Ok(body.models.into_iter().map(|m| m.name).collect())
+    }
+
+    // Envoie une demande et lit la réponse comme un `T`.
+    // `format` : Ollama contraint le modèle à produire un JSON conforme au schéma.
+    // `think: false` : pas de phase de "réflexion" affichée, réponse plus rapide.
+    pub(crate) async fn chat_json<T: DeserializeOwned>(
+        &self,
+        request: ChatRequest<'_>,
+    ) -> Result<T, AppError> {
+        let body = serde_json::json!({
+            "model": request.model,
+            "stream": false,
+            "think": false,
+            "format": request.schema,
+            "options": { "temperature": request.temperature },
+            "messages": [
+                { "role": "system", "content": request.system },
+                { "role": "user", "content": request.user },
+            ],
+        });
+        let response = self
+            .http
+            .post(format!("{}/api/chat", self.base_url))
+            .json(&body)
+            .send()
+            .await?;
+        let chat: ChatResponse = read_json(response).await?;
+
+        // Le schéma est imposé, mais on revérifie : un modèle peut quand même dévier.
+        serde_json::from_str(&chat.message.content).map_err(|e| {
+            log::warn!("Réponse de l'IA illisible ({e}) : {}", chat.message.content);
+            AppError::InvalidAiResponse
+        })
     }
 }
 

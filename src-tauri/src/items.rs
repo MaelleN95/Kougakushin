@@ -1,6 +1,7 @@
 // Fonctionnalité "éléments" : vocabulaire et points de grammaire rattachés à une leçon.
 
 mod commands;
+mod knowledge;
 mod model;
 mod repository;
 
@@ -9,3 +10,10 @@ pub(crate) use commands::{create_item, delete_item, list_items, set_item_active,
 
 // Lu par `cards` pour savoir quelles cartes générer.
 pub(crate) use model::ItemContent;
+
+// Lu par `ai` pour les exercices (vocabulaire et grammaire actifs).
+pub(crate) use knowledge::{Knowledge, find_knowledge};
+
+// Construits à la main dans les tests de `ai`.
+#[cfg(test)]
+pub(crate) use knowledge::{KnownGrammar, KnownWord};

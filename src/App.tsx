@@ -5,12 +5,14 @@ import ItemsPage from "./components/ItemsPage";
 import LessonsPage from "./components/LessonsPage";
 import ReviewPage from "./components/ReviewPage";
 import SettingsPage from "./components/SettingsPage";
+import TranslationPage from "./components/TranslationPage";
 import "./App.css";
 
-type Page = "review" | "items" | "lessons" | "settings";
+type Page = "review" | "translation" | "items" | "lessons" | "settings";
 
 const PAGES: { id: Page; label: string }[] = [
   { id: "review", label: "Réviser" },
+  { id: "translation", label: "Traduction" },
   { id: "items", label: "Éléments" },
   { id: "lessons", label: "Leçons" },
   { id: "settings", label: "Réglages" },
@@ -40,6 +42,7 @@ export default function App() {
       {/* Chaque écran recharge ses données à l'ouverture. */}
       <main className="mx-auto max-w-4xl p-6">
         {page === "review" && <ReviewPage />}
+        {page === "translation" && <TranslationPage />}
         {page === "items" && <ItemsPage />}
         {page === "lessons" && <LessonsPage />}
         {page === "settings" && <SettingsPage />}

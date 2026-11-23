@@ -30,6 +30,10 @@ pub(crate) enum AppError {
     // Ollama a répondu par une erreur (ex. modèle non installé) ; message d'Ollama inclus.
     #[error("Ollama a refusé la demande : {0}")]
     OllamaRefused(String),
+
+    // Le modèle a répondu, mais pas dans la forme JSON demandée.
+    #[error("Réponse de l'IA illisible. Réessaie.")]
+    InvalidAiResponse,
 }
 
 // Vrai si la base a refusé l'opération à cause d'une clé étrangère

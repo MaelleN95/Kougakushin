@@ -2,6 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  Correction,
   Item,
   ItemFilter,
   ItemInput,
@@ -12,6 +13,8 @@ import type {
   ReviewResult,
   ReviewSession,
   Settings,
+  TranslationDirection,
+  TranslationExercise,
 } from "./types";
 
 export const api = {
@@ -38,6 +41,14 @@ export const api = {
   updateSettings: (settings: Settings) => invoke<Settings>("update_settings", { settings }),
 
   checkOllama: () => invoke<OllamaStatus>("check_ollama"),
+  // lessonIds vide = toutes les leçons ; previous : phrases déjà proposées (pas de répétition).
+  generateTranslation: (
+    lessonIds: number[],
+    direction: TranslationDirection,
+    previous: string[],
+  ) => invoke<TranslationExercise>("generate_translation", { lessonIds, direction, previous }),
+  correctTranslation: (exercise: TranslationExercise, answer: string) =>
+    invoke<Correction>("correct_translation", { exercise, answer }),
 };
 
 // Les erreurs Rust arrivent sous forme de chaîne (voir src-tauri/src/error.rs).

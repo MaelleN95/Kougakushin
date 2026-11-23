@@ -87,6 +87,42 @@ pub(super) fn unknown_words(
     unknown
 }
 
+// Forme comparable d'une phrase japonaise, pour savoir si deux phrases sont "les mêmes" :
+// sans espaces ni ponctuation, et avec mes mots en kanji réécrits en kana (食べます => たべます).
+// Sert à écarter les fausses erreurs de l'IA (« correction » identique à ma phrase).
+pub(super) fn normalize_japanese(text: &str, knowledge: &Knowledge) -> String {
+    let mut normalized: String = text
+        .chars()
+        .filter(|c| !c.is_whitespace() && !"。、．，！？!?.,「」『』・〜~".contains(*c))
+        .collect();
+
+    // Pour chaque mot connu avec kanji : partie commune finale (okurigana) retirée,
+    // il reste la paire radical en kanji / radical en kana (食 / た pour 食べる / たべる).
+    let mut stems: Vec<(String, String)> = Vec::new();
+    for word in &knowledge.words {
+        let Some(kanji) = &word.kanji else { continue };
+        let kanji: Vec<char> = kanji.trim().chars().collect();
+        let kana: Vec<char> = word.kana.trim().chars().collect();
+        let common = kanji
+            .iter()
+            .rev()
+            .zip(kana.iter().rev())
+            .take_while(|(a, b)| a == b)
+            .count();
+        let kanji_stem: String = kanji[..kanji.len() - common].iter().collect();
+        let kana_stem: String = kana[..kana.len() - common].iter().collect();
+        if kanji_stem.chars().any(is_kanji) && !kana_stem.is_empty() {
+            stems.push((kanji_stem, kana_stem));
+        }
+    }
+    // Radicaux les plus longs d'abord (学校 avant 学).
+    stems.sort_by_key(|(kanji, _)| std::cmp::Reverse(kanji.chars().count()));
+    for (kanji, kana) in stems {
+        normalized = normalized.replace(&kanji, &kana);
+    }
+    normalized
+}
+
 pub(super) fn truncate(text: &str, max_chars: usize) -> String {
     match text.char_indices().nth(max_chars) {
         Some((byte_index, _)) => format!("{}...", &text[..byte_index]),
@@ -194,4 +230,49 @@ pub(super) fn pick_index(len: usize) -> usize {
         .map(|d| d.subsec_nanos() as usize)
         .unwrap_or(0);
     if len == 0 { 0 } else { nanos % len }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{normalize_japanese, unknown_words};
+    use crate::items::{Knowledge, KnownWord};
+
+    fn word(kana: &str, kanji: Option<&str>) -> KnownWord {
+        KnownWord {
+            kana: kana.into(),
+            kanji: kanji.map(String::from),
+            meaning: "x".into(),
+        }
+    }
+
+    #[test]
+    fn katakana_inconnu_detecte_meme_non_declare() {
+        let knowledge = Knowledge {
+            words: vec![word("コーヒー", None)],
+            ..Knowledge::default()
+        };
+        // テーブル n'est pas déclaré par l'IA, mais repéré ; コーヒー est connu ; ponctuation ignorée.
+        let unknown = unknown_words(
+            "コーヒー を どうぞ。 テーブル は どこ ですか？",
+            &[],
+            &knowledge,
+        );
+        assert_eq!(unknown, ["テーブル"]);
+    }
+
+    #[test]
+    fn normalisation_ignore_espaces_ponctuation_et_kanji_connus() {
+        let knowledge = Knowledge {
+            words: vec![
+                word("たべる", Some("食べる")),
+                word("がっこう", Some("学校")),
+                word("いく", Some("行く")),
+            ],
+            ..Knowledge::default()
+        };
+        let n = |t: &str| normalize_japanese(t, &knowledge);
+        assert_eq!(n("すしを食べます。"), n("すし を たべます"));
+        assert_eq!(n("学校 に 行きます！"), "がっこうにいきます");
+        assert_ne!(n("すし を たべます"), n("すし が たべます"));
+    }
 }

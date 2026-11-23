@@ -7,7 +7,8 @@ use tauri::State;
 
 use super::client::{ChatRequest, ChatTurn, Ollama, Role};
 use super::knowledge_prompt::{
-    allowed_kanji, kanji_reminder, knowledge_rules, pick_index, unknown_words, writing_rule,
+    allowed_kanji, kanji_reminder, knowledge_rules, normalize_japanese, pick_index, unknown_words,
+    writing_rule,
 };
 use crate::error::AppError;
 use crate::items::{self, Knowledge};
@@ -194,7 +195,9 @@ fn summary_system_prompt(theme: &Theme, knowledge: &Knowledge) -> String {
          (particules, conjugaison, vocabulaire, naturel).\n\
          - errors : une entrée par erreur réelle. student = sa phrase telle qu'écrite ; \
          correction = la phrase corrigée ; explanation = courte, nomme la notion en jeu. \
-         N'invente pas d'erreur : un sujet omis n'en est pas une. Liste vide si tout est juste.\n\
+         N'invente pas d'erreur : un sujet omis, un mot écrit en kanji plutôt qu'en kana, \
+         ou l'absence d'espaces n'en sont pas. Vérifie caractère par caractère qu'un mot \
+         manque vraiment avant de le dire. Liste vide si tout est juste.\n\
          - strengths : 1 à 3 réussites précises, uniquement ce qui est réellement juste dans \
          ses phrases (une tournure fautive ne peut pas être citée en réussite).\n\
          - to_review : 2 ou 3 notions ou mots à revoir.\n\
@@ -307,18 +310,82 @@ async fn summarize(
     knowledge: &Knowledge,
     history: &[ChatTurn],
 ) -> Result<ConversationSummary, AppError> {
-    ollama
+    let conversation = transcript(history);
+    let mut summary: ConversationSummary = ollama
         .chat_json(ChatRequest {
             model,
             system: &summary_system_prompt(theme, knowledge),
-            turns: &[ChatTurn::user(format!(
-                "Conversation :\n{}",
-                transcript(history)
-            ))],
+            turns: &[ChatTurn::user(format!("Conversation :\n{conversation}"))],
             schema: summary_schema(),
             temperature: 0.2, // bilan : on veut de la constance
         })
-        .await
+        .await?;
+
+    // Le modèle signale parfois des erreurs inexistantes : chacune est revérifiée.
+    let mut confirmed = Vec::new();
+    for error in summary.errors {
+        // 1. Contrôle par le code : « correction » identique à ma phrase (espaces, ponctuation,
+        //    kanji / kana mis à part) => pas une erreur.
+        if normalize_japanese(&error.student, knowledge)
+            == normalize_japanese(&error.correction, knowledge)
+        {
+            log::info!("Fausse erreur écartée (identique) : {}", error.student);
+            continue;
+        }
+        // 2. Second avis de l'IA, centré sur cette seule phrase.
+        if is_real_error(ollama, model, &conversation, &error).await? {
+            confirmed.push(error);
+        } else {
+            log::info!("Fausse erreur écartée (second avis) : {}", error.student);
+        }
+    }
+    summary.errors = confirmed;
+    Ok(summary)
+}
+
+// Réponse du second avis.
+#[derive(serde::Deserialize)]
+struct ErrorCheck {
+    is_error: bool,
+}
+
+// Juge une seule erreur annoncée : est-elle réelle ?
+async fn is_real_error(
+    ollama: &Ollama,
+    model: &str,
+    conversation: &str,
+    error: &SummaryError,
+) -> Result<bool, AppError> {
+    let system = "Tu es un professeur de japonais natif, rigoureux et honnête. Un correcteur \
+                  affirme qu'une phrase d'élève contient une erreur. Vérifie TOI-MÊME, \
+                  caractère par caractère, avant de répondre.\n\
+                  Ne sont JAMAIS des erreurs : écrire un mot en kanji plutôt qu'en kana (ou \
+                  l'inverse) ; l'absence d'espaces ; omettre un sujet évident ; une formulation \
+                  correcte et naturelle différente de la correction.\n\
+                  - analysis : d'abord, vérifie point par point ce que dit le correcteur.\n\
+                  - is_error : true seulement si la phrase de l'élève est réellement fautive.";
+    let user = format!(
+        "Conversation :\n{conversation}\n\nPhrase de l'élève : {}\nCorrection proposée : {}\n\
+         Explication du correcteur : {}",
+        error.student, error.correction, error.explanation
+    );
+    let check: ErrorCheck = ollama
+        .chat_json(ChatRequest {
+            model,
+            system,
+            turns: &[ChatTurn::user(user)],
+            schema: json!({
+                "type": "object",
+                "properties": {
+                    "analysis": { "type": "string" },
+                    "is_error": { "type": "boolean" }
+                },
+                "required": ["analysis", "is_error"]
+            }),
+            temperature: 0.0, // jugement : le plus déterministe possible
+        })
+        .await?;
+    Ok(check.is_error)
 }
 
 // Connaissances des leçons choisies + modèle réglé ; erreur claire s'il n'y a aucun mot.
@@ -487,6 +554,37 @@ mod tests {
         assert!(prompt.contains("- のむ (飲む) : boire"));
         assert!(prompt.contains("飲む (pas のむ)"));
         assert!(prompt.contains("n'utilise pas ces mots, absents de sa liste : みせ"));
+    }
+
+    // Cas signalé le 2026-11-23 : phrase juste (kanji, sans espaces) déclarée fautive.
+    // cargo test -- --ignored essai_reel_fausse_erreur --nocapture
+    #[test]
+    #[ignore]
+    fn essai_reel_fausse_erreur() {
+        tauri::async_runtime::block_on(async {
+            let ollama = Ollama::new().unwrap();
+            let mut k = knowledge();
+            for (kana, kanji, meaning) in [
+                ("すし", None, "sushi"),
+                ("たべる", Some("食べる"), "manger"),
+                ("あなた", None, "toi"),
+            ] {
+                k.words.push(KnownWord {
+                    kana: kana.into(),
+                    kanji: kanji.map(String::from),
+                    meaning: meaning.into(),
+                });
+            }
+            let theme = find_theme(Some("weekend")).unwrap();
+            let history = [
+                turn(Role::Assistant, "しゅうまつ は なに を たべます か？"),
+                turn(Role::User, "すしを食べます。あなたは？"),
+            ];
+            let summary = summarize(&ollama, "gemma4:e4b-it-q4_K_M", theme, &k, &history)
+                .await
+                .unwrap();
+            println!("ERREURS : {:?}", summary.errors);
+        });
     }
 
     // Nécessite Ollama lancé : cargo test -- --ignored essai_reel_conversation --nocapture

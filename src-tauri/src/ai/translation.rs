@@ -7,7 +7,8 @@ use tauri::State;
 
 use super::client::{ChatRequest, ChatTurn, Ollama};
 use super::knowledge_prompt::{
-    is_kanji, kanji_reminder, knowledge_rules, pick_index, unknown_words, writing_rule,
+    is_kanji, kanji_reminder, knowledge_rules, normalize_japanese, pick_index, unknown_words,
+    writing_rule,
 };
 use crate::error::AppError;
 use crate::items::{self, Knowledge};
@@ -315,7 +316,22 @@ pub(crate) async fn correct_translation(
         ));
     }
     let model = settings::load(pool.inner()).await?.ollama_model;
-    correct_with(ollama.inner(), &model, &exercise, answer.trim()).await
+    let mut correction = correct_with(ollama.inner(), &model, &exercise, answer.trim()).await?;
+
+    // Garde-fou : l'IA juge parfois fausse une réponse identique à sa propre correction
+    // (espaces, ponctuation ou kanji / kana mis à part). Le code la remet à « correct ».
+    if exercise.direction == TranslationDirection::FrJp && correction.verdict != Verdict::Correct {
+        let knowledge = items::find_knowledge(pool.inner(), &[]).await?; // tous mes kanji
+        if normalize_japanese(answer.trim(), &knowledge)
+            == normalize_japanese(&correction.correction, &knowledge)
+        {
+            log::info!("Verdict corrigé en « correct » (réponse identique) : {answer}");
+            correction.verdict = Verdict::Correct;
+            correction.explanation =
+                "Ta traduction est correcte (elle correspond à la correction proposée).".into();
+        }
+    }
+    Ok(correction)
 }
 
 #[cfg(test)]

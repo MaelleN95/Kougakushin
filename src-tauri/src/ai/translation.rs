@@ -187,8 +187,16 @@ fn generation_system_prompt(knowledge: &Knowledge) -> String {
     };
 
     format!(
-        "Tu es professeur de japonais pour une débutante francophone. \
-         Tu crées UNE phrase japonaise courte (3 à 8 mots), naturelle, et sa traduction française.\n\
+        "Tu es un professeur de japonais expérimenté, de langue maternelle japonaise, exigeant \
+         sur le naturel. Ton élève est une francophone qui apprend en cours. \
+         Tu crées UNE phrase japonaise et sa traduction française.\n\
+         Qualité attendue :\n\
+         - La phrase doit sonner naturelle pour un Japonais, comme dans une vraie conversation. \
+         Omets le sujet quand il est évident, comme le font les Japonais : n'écris わたし は que \
+         si la phrase en a vraiment besoin (contraste, présentation).\n\
+         - Exploite au mieux ses connaissances : combine plusieurs mots et points de grammaire, \
+         4 à 10 mots, pas seulement « A は B を V ます ».\n\
+         - La traduction française est naturelle aussi (pas du mot à mot).\n\
          Règles strictes :\n\
          1. Vocabulaire : UNIQUEMENT les mots de la liste ci-dessous (conjugués si besoin), \
          plus les particules.\n\
@@ -204,12 +212,35 @@ fn generation_system_prompt(knowledge: &Knowledge) -> String {
     )
 }
 
+// Forme de phrase imposée à chaque demande : sans elle, le modèle produit toujours
+// la même affirmation simple.
+const SENTENCE_STYLES: [&str; 6] = [
+    "une question (avec か)",
+    "une phrase négative",
+    "une phrase qui précise un moment (aujourd'hui, demain...) si le vocabulaire le permet",
+    "une phrase qui précise un lieu ou une destination",
+    "une réponse naturelle à une question qu'on t'aurait posée",
+    "une phrase qui relie deux idées",
+];
+
+// Tirage au sort sans dépendance : les nanosecondes de l'horloge varient à chaque appel.
+fn pick_style() -> &'static str {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as usize)
+        .unwrap_or(0);
+    SENTENCE_STYLES[nanos % SENTENCE_STYLES.len()]
+}
+
 fn generation_user_prompt(
     knowledge: &Knowledge,
     previous: &[String],
     rejected: &[String],
 ) -> String {
-    let mut prompt = String::from("Crée une nouvelle phrase.");
+    let mut prompt = format!(
+        "Crée une nouvelle phrase : {}, si sa grammaire est connue (sinon, une autre forme).",
+        pick_style()
+    );
     // Rappel explicite, mot par mot : une consigne générale sur les kanji est ignorée par le modèle.
     let with_kanji: Vec<String> = knowledge
         .words
@@ -269,15 +300,26 @@ fn correction_system_prompt(exercise: &TranslationExercise) -> String {
         TranslationDirection::JpFr => ("en français", String::new()),
     };
     format!(
-        "Tu es professeur de japonais, bienveillant et précis, pour une débutante francophone. \
-         Tu corriges sa traduction.\n\
-         - verdict : \"correct\" si le sens et la grammaire sont justes, même si la formulation \
-         diffère de la référence ; \"almost\" pour une petite erreur (particule, conjugaison, \
-         orthographe) ; \"wrong\" sinon.\n\
-         - correction : la meilleure traduction {target}, proche de celle de l'élève si elle est \
-         juste. {rule}\n\
-         - explanation : 1 à 3 phrases courtes en français ; si c'est correct, dis brièvement \
-         pourquoi."
+        "Tu es un professeur de japonais expérimenté, de langue maternelle japonaise. \
+         Tu corriges la traduction d'une élève francophone, avec l'exigence d'un bon professeur.\n\
+         Juge comme un Japonais :\n\
+         - Une traduction qui omet un sujet évident est correcte : c'est même plus naturel. \
+         Plusieurs formulations justes existent : ne pénalise pas un écart avec la référence \
+         s'il est correct et naturel.\n\
+         - Vérifie précisément : particules, conjugaison (temps, négation, forme polie), \
+         ordre des mots, choix du mot, sens exact (rien d'ajouté, rien d'oublié).\n\
+         Réponds :\n\
+         - analysis : D'ABORD, compare mot par mot la traduction de l'élève à la phrase à \
+         traduire. Recopie chaque mot de l'élève et dis s'il est juste. Ne signale un oubli que \
+         si le mot est réellement absent de la traduction de l'élève.\n\
+         - verdict : \"correct\" si c'est juste et naturel ; \"almost\" si une petite erreur \
+         ou une formulation juste mais peu naturelle ; \"wrong\" si le sens ou la grammaire \
+         est faux.\n\
+         - correction : la meilleure traduction {target}, au plus près de celle de l'élève \
+         quand c'est possible. {rule}\n\
+         - explanation : en français, 1 à 3 phrases précises qui nomment la notion en jeu \
+         (ex. « particule に de destination », « négation polie 〜ません »). Pas de compliments \
+         vagues. Si c'est correct, signale une nuance ou une autre formulation naturelle utile."
     )
 }
 
@@ -299,12 +341,15 @@ fn correction_user_prompt(exercise: &TranslationExercise, answer: &str) -> Strin
 fn correction_schema() -> serde_json::Value {
     json!({
         "type": "object",
+        // `analysis` en premier : le modèle écrit dans l'ordre du schéma, il analyse donc
+        // avant de décider. Ce brouillon n'est pas montré (serde l'ignore à la lecture).
         "properties": {
+            "analysis": { "type": "string" },
             "verdict": { "type": "string", "enum": ["correct", "almost", "wrong"] },
             "correction": { "type": "string" },
             "explanation": { "type": "string" }
         },
-        "required": ["verdict", "correction", "explanation"]
+        "required": ["analysis", "verdict", "correction", "explanation"]
     })
 }
 
@@ -492,6 +537,102 @@ mod tests {
     fn troncature_par_caracteres_et_non_par_octets() {
         assert_eq!(truncate("たべる", 2), "たべ...");
         assert_eq!(truncate("たべる", 3), "たべる");
+    }
+
+    // Vocabulaire réaliste de débutante, pour juger le niveau des phrases.
+    fn realistic_knowledge() -> Knowledge {
+        let words = [
+            ("わたし", Some("私"), "je"),
+            ("ともだち", None, "ami"),
+            ("せんせい", Some("先生"), "professeur"),
+            ("がっこう", Some("学校"), "école"),
+            ("うち", None, "maison"),
+            ("えき", Some("駅"), "gare"),
+            ("みず", Some("水"), "eau"),
+            ("おちゃ", None, "thé"),
+            ("パン", None, "pain"),
+            ("すし", None, "sushi"),
+            ("ほん", Some("本"), "livre"),
+            ("えいが", None, "film"),
+            ("たべる", Some("食べる"), "manger"),
+            ("のむ", Some("飲む"), "boire"),
+            ("いく", Some("行く"), "aller"),
+            ("くる", Some("来る"), "venir"),
+            ("みる", Some("見る"), "regarder"),
+            ("よむ", Some("読む"), "lire"),
+            ("おいしい", None, "bon, délicieux"),
+            ("おおきい", None, "grand"),
+            ("きょう", None, "aujourd'hui"),
+            ("あした", None, "demain"),
+            ("いっしょに", None, "ensemble"),
+            ("よく", None, "souvent"),
+        ];
+        let grammar = [
+            ("は", "thème de la phrase"),
+            ("を", "complément d'objet direct"),
+            ("に / へ", "destination (avec いく, くる)"),
+            ("で", "lieu de l'action"),
+            ("か", "particule interrogative en fin de phrase"),
+            ("〜ません", "négation polie du verbe"),
+            ("〜ませんか", "invitation : voulez-vous ... ?"),
+        ];
+        Knowledge {
+            words: words.iter().map(|(k, j, m)| word(k, *j, m)).collect(),
+            grammar: grammar
+                .iter()
+                .map(|(t, e)| KnownGrammar {
+                    title: t.to_string(),
+                    explanation: e.to_string(),
+                })
+                .collect(),
+            focus: vec![
+                word("えいが", None, "film"),
+                word("いっしょに", None, "ensemble"),
+            ],
+        }
+    }
+
+    // cargo test -- --ignored essai_reel_niveau --nocapture
+    #[test]
+    #[ignore]
+    fn essai_reel_niveau() {
+        tauri::async_runtime::block_on(async {
+            let ollama = Ollama::new().unwrap();
+            let model = "gemma4:e4b-it-q4_K_M";
+            let mut previous = Vec::new();
+            for _ in 0..5 {
+                let e = generate_with(
+                    &ollama,
+                    model,
+                    &realistic_knowledge(),
+                    TranslationDirection::FrJp,
+                    &previous,
+                )
+                .await
+                .unwrap();
+                println!(
+                    "PHRASE {} | {} | inconnus {:?}",
+                    e.japanese, e.french, e.unknown_words
+                );
+                previous.push(e.japanese);
+            }
+            let exercise = TranslationExercise {
+                direction: TranslationDirection::FrJp,
+                japanese: "あした ともだち と えいが を 見ます".into(),
+                french: "Demain, je regarde un film avec un ami.".into(),
+                unknown_words: vec![],
+            };
+            for answer in [
+                "あした ともだち と えいが を みます",
+                "あした ともだち と えいが に みます",
+                "わたし は きょう えいが を みます",
+            ] {
+                let c = correct_with(&ollama, model, &exercise, answer)
+                    .await
+                    .unwrap();
+                println!("CORRECTION {answer} => {c:?}");
+            }
+        });
     }
 
     // Nécessite Ollama lancé avec le modèle par défaut :

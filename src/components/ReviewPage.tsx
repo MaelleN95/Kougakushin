@@ -214,6 +214,14 @@ export default function ReviewPage() {
         </p>
       </div>
 
+      {/* Progression de la session (la file s'allonge quand une carte "À revoir" revient). */}
+      <div className="h-2 rounded-full bg-stone-100">
+        <div
+          className="h-2 rounded-full bg-red-800 transition-all"
+          style={{ width: `${(index / queue.length) * 100}%` }}
+        />
+      </div>
+
       <div className="card space-y-4 py-10 text-center">
         <p className="text-xs uppercase tracking-wide text-stone-400">
           {DIRECTION_LABELS[current.direction]}

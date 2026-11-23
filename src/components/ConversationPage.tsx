@@ -45,6 +45,7 @@ export default function ConversationPage() {
   const [waiting, setWaiting] = useState<"start" | "reply" | "end" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     api.listLessons().then(setLessons).catch((e) => setError(errorMessage(e)));
@@ -55,6 +56,11 @@ export default function ConversationPage() {
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" });
   }, [entries, waiting]);
+
+  // Curseur dans le champ de réponse dès que l'IA a répondu : on enchaîne au clavier.
+  useEffect(() => {
+    if (start !== null && summary === null && waiting === null) input.current?.focus();
+  }, [start, summary, waiting]);
 
   function toggleLesson(id: number) {
     setSelectedLessons((current) =>
@@ -267,10 +273,20 @@ export default function ConversationPage() {
                 <p className="text-sm text-stone-600">Indice : {entry.message.hint}</p>
               )}
               <div className="flex gap-2">
-                <button className="btn" onClick={() => toggleFrench(i)}>
+                <button
+                  className="btn"
+                  // preventDefault : le clic ne retire pas le curseur du champ de réponse,
+                  // sinon Entrée "recliquerait" ce bouton au lieu d'envoyer.
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => toggleFrench(i)}
+                >
                   {entry.showFrench ? "Masquer la traduction" : "Traduction"}
                 </button>
-                <button className="btn" onClick={() => toggle(i, "showHint")}>
+                <button
+                  className="btn"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => toggle(i, "showHint")}
+                >
                   {entry.showHint ? "Masquer l'indice" : "Indice"}
                 </button>
               </div>
@@ -290,14 +306,17 @@ export default function ConversationPage() {
       <form onSubmit={send} className="flex gap-2">
         <input
           className="field flex-1 text-lg"
+          ref={input}
           placeholder="Ta réponse en japonais"
           value={answer}
           onChange={(e) => setAnswer(e.target.value)}
           onKeyDown={onKeyDown}
-          autoFocus
         />
         <button type="submit" className="btn-primary" disabled={waiting !== null}>
           Envoyer
+          <kbd className="ml-2 rounded border border-current/30 px-1.5 py-0.5 text-xs opacity-70">
+            Entrée
+          </kbd>
         </button>
       </form>
     </section>

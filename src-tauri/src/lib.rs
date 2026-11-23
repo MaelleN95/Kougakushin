@@ -1,4 +1,5 @@
 // Déclaration des modules : chaque `mod x;` correspond au fichier src/x.rs (comme un namespace PHP).
+mod ai;
 mod cards;
 mod db;
 mod error;
@@ -6,6 +7,7 @@ mod items;
 mod lessons;
 mod settings;
 
+use ai::check_ollama;
 use cards::{get_review_session, review_card};
 use items::{create_item, delete_item, list_items, set_item_active, update_item};
 use lessons::{create_lesson, delete_lesson, list_lessons, update_lesson};
@@ -36,6 +38,8 @@ pub fn run() {
             // Le pool devient un "état" partagé, injectable dans n'importe quelle commande
             // (équivalent de l'injection d'un service dans un contrôleur Symfony).
             app.manage(pool);
+            // Client HTTP vers Ollama, injectable dans les commandes comme le pool.
+            app.manage(ai::Ollama::new()?);
             Ok(())
         })
         // Les commandes Tauri sont des fonctions Rust exposées à l'interface JavaScript.
@@ -53,7 +57,8 @@ pub fn run() {
             get_review_session,
             review_card,
             get_settings,
-            update_settings
+            update_settings,
+            check_ollama
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

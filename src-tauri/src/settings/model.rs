@@ -5,6 +5,10 @@ use crate::error::AppError;
 // Clés stockées en base. Une clé inconnue en base est ignorée (réglage retiré d'une version).
 const NEW_CARDS_PER_DAY: &str = "new_cards_per_day";
 const SHOW_ROMAJI: &str = "show_romaji";
+const OLLAMA_MODEL: &str = "ollama_model";
+
+// Modèle retenu après le comparatif du 2026-11-23 (consignes respectées, corrections justes).
+const DEFAULT_OLLAMA_MODEL: &str = "gemma4:e4b-it-q4_K_M";
 
 // Bornes du nombre de nouvelles cartes par jour.
 const MAX_NEW_CARDS_PER_DAY: i64 = 100;
@@ -14,6 +18,7 @@ const MAX_NEW_CARDS_PER_DAY: i64 = 100;
 pub(crate) struct Settings {
     pub(crate) new_cards_per_day: i64, // lu par `cards`
     pub(super) show_romaji: bool,
+    pub(crate) ollama_model: String, // lu par `ai`
 }
 
 // Valeurs utilisées tant que l'utilisatrice n'a rien modifié.
@@ -22,6 +27,7 @@ impl Default for Settings {
         Settings {
             new_cards_per_day: 10,
             show_romaji: true,
+            ollama_model: DEFAULT_OLLAMA_MODEL.to_string(),
         }
     }
 }
@@ -32,6 +38,9 @@ impl Settings {
             return Err(AppError::Validation(
                 "Le nombre de nouvelles cartes par jour doit être entre 0 et 100",
             ));
+        }
+        if self.ollama_model.trim().is_empty() {
+            return Err(AppError::Validation("Le modèle d'IA ne peut pas être vide"));
         }
         Ok(())
     }
@@ -51,6 +60,7 @@ impl Settings {
                         .parse()
                         .map_err(|_| AppError::InvalidData("show_romaji"))?;
                 }
+                OLLAMA_MODEL => settings.ollama_model = value,
                 _ => {} // clé inconnue : ignorée
             }
         }
@@ -58,10 +68,11 @@ impl Settings {
     }
 
     // Réglages => lignes à enregistrer.
-    pub(super) fn to_pairs(&self) -> [(&'static str, String); 2] {
+    pub(super) fn to_pairs(&self) -> [(&'static str, String); 3] {
         [
             (NEW_CARDS_PER_DAY, self.new_cards_per_day.to_string()),
             (SHOW_ROMAJI, self.show_romaji.to_string()),
+            (OLLAMA_MODEL, self.ollama_model.clone()),
         ]
     }
 }
@@ -75,6 +86,7 @@ mod tests {
         let settings = Settings {
             new_cards_per_day: 25,
             show_romaji: false,
+            ollama_model: "autre:modele".to_string(),
         };
         let pairs = settings
             .to_pairs()

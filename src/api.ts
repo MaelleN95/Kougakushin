@@ -7,6 +7,7 @@ import type {
   ItemInput,
   Lesson,
   LessonInput,
+  OllamaStatus,
   ReviewRating,
   ReviewResult,
   ReviewSession,
@@ -35,6 +36,8 @@ export const api = {
 
   getSettings: () => invoke<Settings>("get_settings"),
   updateSettings: (settings: Settings) => invoke<Settings>("update_settings", { settings }),
+
+  checkOllama: () => invoke<OllamaStatus>("check_ollama"),
 };
 
 // Les erreurs Rust arrivent sous forme de chaîne (voir src-tauri/src/error.rs).

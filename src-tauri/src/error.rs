@@ -22,6 +22,14 @@ pub(crate) enum AppError {
     // Ligne en base qui ne respecte pas le modèle Rust ; le paramètre nomme le champ fautif.
     #[error("Donnée incohérente en base : {0}")]
     InvalidData(&'static str),
+
+    // Échec d'un appel HTTP à Ollama (pas lancé, trop lent, réponse illisible...).
+    #[error("Erreur de communication avec Ollama : {0}")]
+    Ollama(#[from] reqwest::Error),
+
+    // Ollama a répondu par une erreur (ex. modèle non installé) ; message d'Ollama inclus.
+    #[error("Ollama a refusé la demande : {0}")]
+    OllamaRefused(String),
 }
 
 // Vrai si la base a refusé l'opération à cause d'une clé étrangère
@@ -30,6 +38,19 @@ pub(crate) fn is_foreign_key_violation(error: &sqlx::Error) -> bool {
     match error {
         sqlx::Error::Database(db_error) => db_error.is_foreign_key_violation(),
         _ => false,
+    }
+}
+
+// Message pour l'utilisatrice selon la cause d'une erreur HTTP vers Ollama.
+fn ollama_message(error: &reqwest::Error) -> &'static str {
+    if error.is_connect() {
+        "Ollama ne répond pas. Vérifie qu'il est lancé (icône dans la barre des tâches)."
+    } else if error.is_timeout() {
+        "Ollama met trop de temps à répondre. Réessaie dans un instant."
+    } else if error.is_decode() {
+        "Réponse de l'IA illisible. Réessaie."
+    } else {
+        "Erreur de communication avec Ollama."
     }
 }
 
@@ -42,6 +63,15 @@ impl serde::Serialize for AppError {
                 // Détail écrit dans le journal (terminal en dev + fichier de log).
                 log::error!("{self}");
                 serializer.serialize_str("Erreur de base de données")
+            }
+            // Message compréhensible selon la cause ; le détail technique va dans le journal.
+            AppError::Ollama(error) => {
+                log::error!("{self}");
+                serializer.serialize_str(ollama_message(error))
+            }
+            AppError::OllamaRefused(_) => {
+                log::warn!("{self}");
+                serializer.serialize_str(&self.to_string())
             }
             _ => serializer.serialize_str(&self.to_string()),
         }

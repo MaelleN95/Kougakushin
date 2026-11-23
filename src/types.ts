@@ -108,4 +108,14 @@ export type ReviewSession = {
 export type Settings = {
   new_cards_per_day: number;
   show_romaji: boolean;
+  ollama_model: string;
+};
+
+// --- IA ---
+
+// Réponse de check_ollama (bouton "Tester la connexion").
+export type OllamaStatus = {
+  version: string;
+  models: string[]; // modèles téléchargés
+  configured_model_installed: boolean;
 };

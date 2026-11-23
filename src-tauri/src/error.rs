@@ -34,6 +34,14 @@ pub(crate) enum AppError {
     // Le modèle a répondu, mais pas dans la forme JSON demandée.
     #[error("Réponse de l'IA illisible. Réessaie.")]
     InvalidAiResponse,
+
+    // Lecture ou écriture d'un fichier (sauvegarde) impossible.
+    #[error("Erreur de fichier : {0}")]
+    File(#[from] std::io::Error),
+
+    // Fichier de sauvegarde illisible ou incohérent ; rien n'a été modifié.
+    #[error("Fichier de sauvegarde invalide : {0}")]
+    InvalidBackup(String),
 }
 
 // Vrai si la base a refusé l'opération à cause d'une clé étrangère

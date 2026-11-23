@@ -172,3 +172,14 @@ export type ConversationSummary = {
   strengths: string[];
   to_review: string[];
 };
+
+// --- Sauvegarde ---
+
+// Résultat d'un import (miroir de ImportReport dans src-tauri/src/backup/model.rs).
+export type ImportReport = {
+  lessons: number;
+  items: number;
+  cards: number;
+  review_logs: number;
+  safety_backup: string; // copie automatique de l'état d'avant l'import
+};

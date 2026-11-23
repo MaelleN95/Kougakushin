@@ -7,6 +7,7 @@ import type {
   ConversationStart,
   ConversationSummary,
   Correction,
+  ImportReport,
   Item,
   ItemFilter,
   ItemInput,
@@ -65,6 +66,10 @@ export const api = {
     invoke<ConversationSummary>("end_conversation", { lessonIds, themeId, history }),
   // Traduction japonais => français par le traducteur dédié.
   translateMessage: (text: string) => invoke<string>("translate_message", { text }),
+
+  // null : fenêtre fermée sans choisir de fichier.
+  exportData: () => invoke<string | null>("export_data"),
+  importData: () => invoke<ImportReport | null>("import_data"),
 };
 
 // Les erreurs Rust arrivent sous forme de chaîne (voir src-tauri/src/error.rs).

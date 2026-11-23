@@ -1,5 +1,6 @@
 // Déclaration des modules : chaque `mod x;` correspond au fichier src/x.rs (comme un namespace PHP).
 mod ai;
+mod backup;
 mod cards;
 mod db;
 mod error;
@@ -11,6 +12,7 @@ use ai::{
     check_ollama, correct_translation, end_conversation, generate_translation,
     list_conversation_themes, reply_conversation, start_conversation, translate_message,
 };
+use backup::{export_data, import_data};
 use cards::{get_review_session, review_card};
 use items::{create_item, delete_item, list_items, set_item_active, update_item};
 use lessons::{create_lesson, delete_lesson, list_lessons, update_lesson};
@@ -21,6 +23,8 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        // Fenêtres Windows "Enregistrer sous" / "Ouvrir" (export / import des données).
+        .plugin(tauri_plugin_dialog::init())
         // Journal : terminal en développement + fichier dans %LOCALAPPDATA%\com.kougakushin.app\logs\.
         // Info et plus grave seulement (sqlx écrit chaque requête au niveau Debug).
         // Fichier de 1 Mo au plus, 5 anciens fichiers gardés.
@@ -68,7 +72,9 @@ pub fn run() {
             start_conversation,
             reply_conversation,
             end_conversation,
-            translate_message
+            translate_message,
+            export_data,
+            import_data
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

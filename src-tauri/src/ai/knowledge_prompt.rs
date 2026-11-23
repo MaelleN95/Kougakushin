@@ -232,6 +232,12 @@ pub(super) fn pick_index(len: usize) -> usize {
     if len == 0 { 0 } else { nanos % len }
 }
 
+// Modèle des essais réels (tests ignorés) : variable KOUGAKUSHIN_MODEL, sinon le modèle par défaut.
+#[cfg(test)]
+pub(super) fn test_model() -> String {
+    std::env::var("KOUGAKUSHIN_MODEL").unwrap_or_else(|_| "gemma4:e4b-it-q4_K_M".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{normalize_japanese, unknown_words};

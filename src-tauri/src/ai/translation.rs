@@ -472,7 +472,7 @@ mod tests {
     fn essai_reel_niveau() {
         tauri::async_runtime::block_on(async {
             let ollama = Ollama::new().unwrap();
-            let model = "gemma4:e4b-it-q4_K_M";
+            let model = &super::super::knowledge_prompt::test_model();
             let mut previous = Vec::new();
             for _ in 0..5 {
                 let e = generate_with(
@@ -516,7 +516,7 @@ mod tests {
     fn essai_reel_traduction() {
         tauri::async_runtime::block_on(async {
             let ollama = Ollama::new().unwrap();
-            let model = "gemma4:e4b-it-q4_K_M";
+            let model = &super::super::knowledge_prompt::test_model();
             let exercise = generate_with(
                 &ollama,
                 model,

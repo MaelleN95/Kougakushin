@@ -580,9 +580,15 @@ mod tests {
                 turn(Role::Assistant, "しゅうまつ は なに を たべます か？"),
                 turn(Role::User, "すしを食べます。あなたは？"),
             ];
-            let summary = summarize(&ollama, "gemma4:e4b-it-q4_K_M", theme, &k, &history)
-                .await
-                .unwrap();
+            let summary = summarize(
+                &ollama,
+                &super::super::knowledge_prompt::test_model(),
+                theme,
+                &k,
+                &history,
+            )
+            .await
+            .unwrap();
             println!("ERREURS : {:?}", summary.errors);
         });
     }
@@ -593,7 +599,7 @@ mod tests {
     fn essai_reel_conversation() {
         tauri::async_runtime::block_on(async {
             let ollama = Ollama::new().unwrap();
-            let model = "gemma4:e4b-it-q4_K_M";
+            let model = &super::super::knowledge_prompt::test_model();
             let theme = find_theme(Some("cafe")).unwrap();
             let first = next_message(&ollama, model, theme, &knowledge(), &[])
                 .await

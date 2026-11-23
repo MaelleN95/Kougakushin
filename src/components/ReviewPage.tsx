@@ -17,6 +17,9 @@ const RATINGS: { rating: ReviewRating; label: string; key: string; className: st
 type Tally = Record<ReviewRating, number>;
 const EMPTY_TALLY: Tally = { again: 0, hard: 0, good: 0, easy: 0 };
 
+// Nouvelles cartes ajoutées par le bouton "de plus" quand la limite du jour est à 0.
+const DEFAULT_EXTRA_STEP = 10;
+
 // Question selon le sens de la carte (SPEC.md 3.3).
 function Question({ card }: { card: ReviewCard }) {
   switch (card.direction) {
@@ -30,13 +33,15 @@ function Question({ card }: { card: ReviewCard }) {
 }
 
 // Réponse complète : la même pour les trois sens.
-function Answer({ card }: { card: ReviewCard }) {
+function Answer({ card, showRomaji }: { card: ReviewCard; showRomaji: boolean }) {
   return (
     <div className="space-y-1 border-t border-stone-200 pt-4">
       <p className="text-2xl">
         {card.kanji && <span className="mr-3">{card.kanji}</span>}
         {card.kana}
-        {card.romaji && <span className="ml-3 text-base text-stone-400">{card.romaji}</span>}
+        {showRomaji && card.romaji && (
+          <span className="ml-3 text-base text-stone-400">{card.romaji}</span>
+        )}
       </p>
       <p className="text-lg">{card.meaning}</p>
       {card.example_jp && (
@@ -58,23 +63,38 @@ const DIRECTION_LABELS = {
 export default function ReviewPage() {
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [lessonId, setLessonId] = useState<number | undefined>(undefined);
+  const [showRomaji, setShowRomaji] = useState(true);
+  const [extraStep, setExtraStep] = useState(DEFAULT_EXTRA_STEP);
   // null = session pas encore lancée.
   const [queue, setQueue] = useState<ReviewCard[] | null>(null);
   const [index, setIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
   const [busy, setBusy] = useState(false); // évite une double note pendant l'appel à Rust
   const [tally, setTally] = useState<Tally>(EMPTY_TALLY);
+  // Nouvelles cartes demandées en plus de la limite du jour, cumulées pendant la visite.
+  const [extraNew, setExtraNew] = useState(0);
+  const [moreNewAvailable, setMoreNewAvailable] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     api.listLessons().then(setLessons).catch((e) => setError(errorMessage(e)));
+    api
+      .getSettings()
+      .then((s) => {
+        setShowRomaji(s.show_romaji);
+        if (s.new_cards_per_day > 0) setExtraStep(s.new_cards_per_day);
+      })
+      .catch((e) => setError(errorMessage(e)));
   }, []);
 
   const current = queue !== null && index < queue.length ? queue[index] : null;
 
-  async function startSession() {
+  async function startSession(extra: number) {
     try {
-      setQueue(shuffled(await api.getReviewSession(lessonId)));
+      const session = await api.getReviewSession(lessonId, extra);
+      setQueue(shuffled(session.cards));
+      setMoreNewAvailable(session.more_new_available);
+      setExtraNew(extra);
       setIndex(0);
       setRevealed(false);
       setTally(EMPTY_TALLY);
@@ -90,6 +110,8 @@ export default function ReviewPage() {
     try {
       await api.reviewCard(current.card_id, rating);
       setTally((t) => ({ ...t, [rating]: t[rating] + 1 }));
+      // "À revoir" : la carte revient en fin de session (FSRS la reprogramme dans quelques minutes).
+      if (rating === "again") setQueue((q) => (q === null ? q : [...q, current]));
       setIndex((i) => i + 1);
       setRevealed(false);
     } catch (e) {
@@ -133,7 +155,7 @@ export default function ReviewPage() {
               </option>
             ))}
           </select>
-          <button className="btn-primary" onClick={startSession}>
+          <button className="btn-primary" onClick={() => startSession(extraNew)}>
             Commencer
           </button>
         </div>
@@ -150,10 +172,10 @@ export default function ReviewPage() {
         <h2 className="text-xl font-semibold">Réviser</h2>
         <div className="card space-y-3">
           {total === 0 ? (
-            <p>Rien à réviser pour l'instant.</p>
+            <p>Aucune carte à réviser pour l'instant.</p>
           ) : (
             <>
-              <p className="font-medium">Session terminée : {total} carte(s).</p>
+              <p className="font-medium">Session terminée : {total} révision(s).</p>
               <ul className="text-sm">
                 {RATINGS.map((r) => (
                   <li key={r.rating}>
@@ -163,9 +185,13 @@ export default function ReviewPage() {
               </ul>
             </>
           )}
-          <div className="flex gap-2">
-            {/* Les cartes notées "À revoir" reviennent quelques minutes plus tard. */}
-            <button className="btn-primary" onClick={startSession}>
+          <div className="flex flex-wrap gap-2">
+            {moreNewAvailable && (
+              <button className="btn-primary" onClick={() => startSession(extraNew + extraStep)}>
+                Apprendre {extraStep} nouvelles de plus
+              </button>
+            )}
+            <button className="btn" onClick={() => startSession(extraNew)}>
               Relancer
             </button>
             <button className="btn" onClick={() => setQueue(null)}>
@@ -194,7 +220,7 @@ export default function ReviewPage() {
           {current.is_new && " - nouvelle"}
         </p>
         <Question card={current} />
-        {revealed && <Answer card={current} />}
+        {revealed && <Answer card={current} showRomaji={showRomaji} />}
       </div>
 
       {revealed ? (

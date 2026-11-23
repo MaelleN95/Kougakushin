@@ -4,10 +4,12 @@ mod db;
 mod error;
 mod items;
 mod lessons;
+mod settings;
 
 use cards::{get_review_session, review_card};
 use items::{create_item, delete_item, list_items, set_item_active, update_item};
 use lessons::{create_lesson, delete_lesson, list_lessons, update_lesson};
+use settings::{get_settings, update_settings};
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -36,7 +38,9 @@ pub fn run() {
             set_item_active,
             delete_item,
             get_review_session,
-            review_card
+            review_card,
+            get_settings,
+            update_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

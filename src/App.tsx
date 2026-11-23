@@ -4,14 +4,16 @@ import { useState } from "react";
 import ItemsPage from "./components/ItemsPage";
 import LessonsPage from "./components/LessonsPage";
 import ReviewPage from "./components/ReviewPage";
+import SettingsPage from "./components/SettingsPage";
 import "./App.css";
 
-type Page = "review" | "items" | "lessons";
+type Page = "review" | "items" | "lessons" | "settings";
 
 const PAGES: { id: Page; label: string }[] = [
   { id: "review", label: "Réviser" },
   { id: "items", label: "Éléments" },
   { id: "lessons", label: "Leçons" },
+  { id: "settings", label: "Réglages" },
 ];
 
 export default function App() {
@@ -40,6 +42,7 @@ export default function App() {
         {page === "review" && <ReviewPage />}
         {page === "items" && <ItemsPage />}
         {page === "lessons" && <LessonsPage />}
+        {page === "settings" && <SettingsPage />}
       </main>
     </div>
   );

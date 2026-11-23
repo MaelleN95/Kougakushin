@@ -7,9 +7,10 @@ import type {
   ItemInput,
   Lesson,
   LessonInput,
-  ReviewCard,
   ReviewRating,
   ReviewResult,
+  ReviewSession,
+  Settings,
 } from "./types";
 
 export const api = {
@@ -26,11 +27,14 @@ export const api = {
     invoke<Item>("set_item_active", { id, active }),
   deleteItem: (id: number) => invoke<null>("delete_item", { id }),
 
-  // lessonId absent => toutes les leçons.
-  getReviewSession: (lessonId?: number) =>
-    invoke<ReviewCard[]>("get_review_session", { lessonId }),
+  // lessonId absent => toutes les leçons ; extraNew : nouvelles cartes au-delà de la limite.
+  getReviewSession: (lessonId?: number, extraNew = 0) =>
+    invoke<ReviewSession>("get_review_session", { lessonId, extraNew }),
   reviewCard: (cardId: number, rating: ReviewRating) =>
     invoke<ReviewResult>("review_card", { cardId, rating }),
+
+  getSettings: () => invoke<Settings>("get_settings"),
+  updateSettings: (settings: Settings) => invoke<Settings>("update_settings", { settings }),
 };
 
 // Les erreurs Rust arrivent sous forme de chaîne (voir src-tauri/src/error.rs).

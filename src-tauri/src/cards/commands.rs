@@ -6,33 +6,47 @@ use sqlx::SqlitePool;
 use tauri::State;
 
 use super::model::{
-    ReviewCard, ReviewRating, ReviewResult, SessionRow, start_of_local_day, to_db_date,
+    ReviewRating, ReviewResult, ReviewSession, SessionRow, start_of_local_day, to_db_date,
 };
 use super::repository;
 use crate::error::AppError;
+use crate::settings;
 
-// Nouvelles cartes au plus par jour (SPEC.md 3.3 ; deviendra un réglage).
-const NEW_CARDS_PER_DAY: i64 = 10;
-
-// Cartes à réviser maintenant, puis les nouvelles dans la limite du jour.
+// Cartes à réviser maintenant, puis les nouvelles dans la limite du jour (réglage),
+// augmentée de `extra_new` quand l'utilisatrice demande "N nouvelles de plus".
 pub(super) async fn build_session(
     pool: &SqlitePool,
     lesson_id: Option<i64>,
+    extra_new: i64,
     now: DateTime<Utc>,
-) -> Result<Vec<ReviewCard>, AppError> {
+) -> Result<ReviewSession, AppError> {
+    if extra_new < 0 {
+        return Err(AppError::Validation(
+            "Le nombre de cartes supplémentaires ne peut pas être négatif",
+        ));
+    }
     let to_review = repository::find_to_review(pool, lesson_id, &to_db_date(now)).await?;
 
+    let per_day = settings::load(pool).await?.new_cards_per_day;
     let since = to_db_date(start_of_local_day(now));
     let already_new = repository::count_new_reviewed_since(pool, &since).await?;
-    let remaining_new = (NEW_CARDS_PER_DAY - already_new).max(0);
+    let remaining_new = (per_day + extra_new - already_new).max(0);
     let new = repository::find_new(pool, lesson_id, remaining_new).await?;
 
+    // Reste-t-il des nouvelles cartes au-delà de celles proposées ? (bouton "N de plus")
+    let more_new_available = repository::count_new(pool, lesson_id).await? > new.len() as i64;
+
     // chain : les cartes à réviser d'abord, puis les nouvelles.
-    to_review
+    let cards = to_review
         .into_iter()
         .chain(new)
         .map(SessionRow::into_review_card)
-        .collect()
+        .collect::<Result<_, _>>()?;
+
+    Ok(ReviewSession {
+        cards,
+        more_new_available,
+    })
 }
 
 // Planifie la carte avec FSRS selon la note, puis enregistre le tout en une transaction.
@@ -56,13 +70,14 @@ pub(super) async fn apply_review(
     })
 }
 
-// JS : invoke("get_review_session") ou invoke("get_review_session", { lessonId: 3 }).
+// JS : invoke("get_review_session", { lessonId: 3, extraNew: 10 }) ; les deux sont facultatifs.
 #[tauri::command]
 pub(crate) async fn get_review_session(
     pool: State<'_, SqlitePool>,
     lesson_id: Option<i64>,
-) -> Result<Vec<ReviewCard>, AppError> {
-    build_session(pool.inner(), lesson_id, Utc::now()).await
+    extra_new: Option<i64>,
+) -> Result<ReviewSession, AppError> {
+    build_session(pool.inner(), lesson_id, extra_new.unwrap_or(0), Utc::now()).await
 }
 
 // JS : invoke("review_card", { cardId: 12, rating: "good" }).
@@ -124,9 +139,10 @@ mod tests {
 
     // Ids des cartes proposées, dans l'ordre.
     async fn session_ids(pool: &SqlitePool, now: DateTime<Utc>) -> Vec<i64> {
-        build_session(pool, None, now)
+        build_session(pool, None, 0, now)
             .await
             .unwrap()
+            .cards
             .into_iter()
             .map(|card| {
                 serde_json::to_value(card).unwrap()["card_id"]
@@ -193,6 +209,22 @@ mod tests {
             // Le lendemain, elle est à réviser : proposée en premier, avant les nouvelles.
             let ids = session_ids(&pool, noon() + Duration::days(1)).await;
             assert_eq!(ids.first(), Some(&1));
+        });
+    }
+
+    #[test]
+    fn bouton_n_nouvelles_de_plus() {
+        tauri::async_runtime::block_on(async {
+            let pool = pool_with_words(6).await; // 12 nouvelles cartes actives
+            let session = build_session(&pool, None, 0, noon()).await.unwrap();
+            assert_eq!(session.cards.len(), 10);
+            assert!(session.more_new_available);
+
+            let more = build_session(&pool, None, 10, noon()).await.unwrap();
+            assert_eq!(more.cards.len(), 12); // limite 20, seulement 12 disponibles
+            assert!(!more.more_new_available);
+
+            assert!(build_session(&pool, None, -1, noon()).await.is_err());
         });
     }
 

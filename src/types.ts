@@ -96,3 +96,16 @@ export type ReviewRating = "again" | "hard" | "good" | "easy";
 export type ReviewResult = {
   next_review_at: string; // date de prochaine révision, UTC
 };
+
+// Session renvoyée par get_review_session.
+export type ReviewSession = {
+  cards: ReviewCard[];
+  more_new_available: boolean; // d'autres nouvelles cartes existent au-delà de la limite
+};
+
+// --- Réglages ---
+
+export type Settings = {
+  new_cards_per_day: number;
+  show_romaji: boolean;
+};

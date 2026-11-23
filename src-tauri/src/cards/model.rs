@@ -194,6 +194,14 @@ impl SessionRow {
     }
 }
 
+// Session de révision envoyée au front.
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct ReviewSession {
+    pub(super) cards: Vec<ReviewCard>,
+    // Vrai s'il existe d'autres nouvelles cartes que celles proposées (limite du jour atteinte).
+    pub(super) more_new_available: bool,
+}
+
 // Résultat d'une révision : date de prochaine révision (UTC, format de la base).
 #[derive(Debug, serde::Serialize)]
 pub(crate) struct ReviewResult {

@@ -11,6 +11,7 @@ export default function ItemsPage() {
   const [filter, setFilter] = useState<ItemFilter>({ active: true });
   const [editing, setEditing] = useState<Item | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
+  const [showRomaji, setShowRomaji] = useState(true); // réglage
   const [error, setError] = useState<string | null>(null);
 
   async function reloadItems() {
@@ -23,6 +24,10 @@ export default function ItemsPage() {
 
   useEffect(() => {
     api.listLessons().then(setLessons).catch((e) => setError(errorMessage(e)));
+    api
+      .getSettings()
+      .then((s) => setShowRomaji(s.show_romaji))
+      .catch((e) => setError(errorMessage(e)));
   }, []);
 
   // Relance la recherche à chaque changement de filtre.
@@ -149,7 +154,7 @@ export default function ItemsPage() {
                       {item.content.kanji && (
                         <span className="ml-2 text-stone-500">{item.content.kana}</span>
                       )}
-                      {item.content.romaji && (
+                      {showRomaji && item.content.romaji && (
                         <span className="ml-2 text-sm text-stone-400">{item.content.romaji}</span>
                       )}
                     </p>

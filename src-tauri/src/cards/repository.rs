@@ -58,6 +58,24 @@ pub(super) async fn find_new(
     .await
 }
 
+// Nombre de cartes jamais vues (éléments actifs), toutes limites confondues.
+pub(super) async fn count_new(
+    pool: &SqlitePool,
+    lesson_id: Option<i64>,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)
+        FROM card c
+        JOIN item i ON i.id = c.item_id
+        WHERE i.active = 1 AND (?1 IS NULL OR i.lesson_id = ?1) AND c.state = 0
+        "#,
+    )
+    .bind(lesson_id)
+    .fetch_one(pool)
+    .await
+}
+
 // Nombre de cartes nouvelles révisées pour la première fois depuis `since` (format de la base).
 // review_log.state est l'état avant la révision : 0 = la carte était nouvelle.
 pub(super) async fn count_new_reviewed_since(

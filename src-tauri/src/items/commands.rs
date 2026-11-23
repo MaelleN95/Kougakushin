@@ -8,6 +8,18 @@ use super::repository;
 use crate::cards;
 use crate::error::{AppError, is_foreign_key_violation};
 
+// Refuse un mot déjà présent à l'identique (D21) ; vérifié dans la transaction d'écriture.
+async fn reject_duplicate(
+    conn: &mut sqlx::SqliteConnection,
+    input: &CreateItemInput,
+    exclude_id: Option<i64>,
+) -> Result<(), AppError> {
+    if repository::vocab_duplicate_exists(&mut *conn, &input.content, exclude_id).await? {
+        return Err(AppError::Conflict("Ce mot existe déjà dans ta base."));
+    }
+    Ok(())
+}
+
 // Une clé étrangère violée à l'écriture d'un élément = lesson_id inexistant.
 fn lesson_not_found_or(error: sqlx::Error) -> AppError {
     if is_foreign_key_violation(&error) {
@@ -40,6 +52,7 @@ pub(crate) async fn create_item(
     // Transaction : l'élément et ses cartes sont enregistrés ensemble, ou rien du tout.
     // Si une erreur fait sortir avant commit(), `tx` est abandonnée et annulée automatiquement.
     let mut tx = pool.begin().await?;
+    reject_duplicate(&mut tx, &input, None).await?;
     let row = repository::insert(&mut *tx, &input)
         .await
         .map_err(lesson_not_found_or)?;
@@ -59,6 +72,7 @@ pub(crate) async fn update_item(
 
     // Même principe que create_item : élément et cartes modifiés ensemble.
     let mut tx = pool.begin().await?;
+    reject_duplicate(&mut tx, &input, Some(id)).await?;
     let row = repository::update(&mut *tx, id, &input)
         .await
         .map_err(lesson_not_found_or)?

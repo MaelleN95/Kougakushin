@@ -186,6 +186,45 @@ pub(super) async fn set_active(
     .await
 }
 
+// Vrai si un autre mot identique existe déjà : mêmes kana, mêmes kanji (ou aucun des deux) et même
+// traduction (décision D21). Les homonymes aux kanji différents (橋 / 箸) restent permis.
+// `exclude_id` : l'élément en cours de modification, qui ne compte pas comme doublon de lui-même.
+pub(super) async fn vocab_duplicate_exists<'c, E>(
+    executor: E,
+    content: &ItemContent,
+    exclude_id: Option<i64>,
+) -> Result<bool, sqlx::Error>
+where
+    E: Executor<'c, Database = Sqlite>,
+{
+    let ItemContent::Vocab {
+        kana,
+        kanji,
+        meaning,
+        ..
+    } = content
+    else {
+        return Ok(false); // la grammaire n'est pas concernée
+    };
+    let count: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*) FROM item
+        WHERE kind = 'vocab'
+          AND trim(kana) = ?1
+          AND COALESCE(trim(kanji), '') = ?2
+          AND trim(meaning) = ?3
+          AND (?4 IS NULL OR id <> ?4)
+        "#,
+    )
+    .bind(kana.trim())
+    .bind(kanji.as_deref().map(str::trim).unwrap_or(""))
+    .bind(meaning.trim())
+    .bind(exclude_id)
+    .fetch_one(executor)
+    .await?;
+    Ok(count > 0)
+}
+
 // Supprime un élément ; false si l'id n'existe pas.
 pub(super) async fn delete(pool: &SqlitePool, id: i64) -> Result<bool, sqlx::Error> {
     let result = sqlx::query("DELETE FROM item WHERE id = ?")
@@ -415,6 +454,38 @@ mod tests {
                 .await
                 .unwrap_err();
             assert!(is_foreign_key_violation(&update_error));
+        });
+    }
+
+    #[test]
+    fn doublon_exact_refuse_homonyme_permis() {
+        tauri::async_runtime::block_on(async {
+            let pool = seeded_pool().await; // 1 = たべる (manger), sans kanji
+            let same = vocab(1, " たべる ", "manger");
+            assert!(
+                super::vocab_duplicate_exists(&pool, &same.content, None)
+                    .await
+                    .unwrap()
+            );
+            // Le mot lui-même, en cours de modification, n'est pas un doublon.
+            assert!(
+                !super::vocab_duplicate_exists(&pool, &same.content, Some(1))
+                    .await
+                    .unwrap()
+            );
+            // Même kana, autre traduction : homonyme permis.
+            let homonym = vocab(1, "たべる", "dévorer");
+            assert!(
+                !super::vocab_duplicate_exists(&pool, &homonym.content, None)
+                    .await
+                    .unwrap()
+            );
+            // La grammaire n'est pas concernée.
+            assert!(
+                !super::vocab_duplicate_exists(&pool, &grammar(1, "〜ています").content, None)
+                    .await
+                    .unwrap()
+            );
         });
     }
 }

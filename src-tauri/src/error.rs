@@ -34,13 +34,13 @@ pub(crate) fn is_foreign_key_violation(error: &sqlx::Error) -> bool {
 }
 
 // Tauri exige que l'erreur d'une commande soit sérialisable.
-// Le front reçoit une chaîne ; le détail technique d'une erreur SQL reste côté Rust.
+// Le front reçoit une chaîne ; le détail technique d'une erreur SQL va dans le journal.
 impl serde::Serialize for AppError {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
             AppError::Database(_) => {
-                // Détail visible dans le terminal de `npm run tauri dev` uniquement.
-                eprintln!("[AppError] {self}");
+                // Détail écrit dans le journal (terminal en dev + fichier de log).
+                log::error!("{self}");
                 serializer.serialize_str("Erreur de base de données")
             }
             _ => serializer.serialize_str(&self.to_string()),

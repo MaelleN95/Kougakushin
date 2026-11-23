@@ -16,10 +16,23 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        // Exécuté une fois au démarrage, avant l'ouverture de la fenêtre.
+        // Journal : terminal en développement + fichier dans %LOCALAPPDATA%\com.kougakushin.app\logs\.
+        // Info et plus grave seulement (sqlx écrit chaque requête au niveau Debug).
+        // Fichier de 1 Mo au plus, 5 anciens fichiers gardés.
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(log::LevelFilter::Info)
+                .max_file_size(1_000_000)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(5))
+                .build(),
+        )
+        // Exécuté une fois au démarrage, avant l'ouverture de la fenêtre (les plugins sont déjà prêts).
         .setup(|app| {
             // `setup` n'est pas async : block_on attend ici la fin de l'initialisation de la base.
-            let pool = tauri::async_runtime::block_on(db::init(app.handle()))?;
+            let pool = tauri::async_runtime::block_on(db::init(app.handle())).map_err(|e| {
+                log::error!("Initialisation de la base impossible : {e}");
+                e
+            })?;
             // Le pool devient un "état" partagé, injectable dans n'importe quelle commande
             // (équivalent de l'injection d'un service dans un contrôleur Symfony).
             app.manage(pool);

@@ -6,7 +6,7 @@ use crate::error::AppError;
 use crate::items::ItemContent;
 
 // Format des dates en base : celui de datetime('now') de SQLite, en UTC.
-// Toujours le même, pour que la comparaison de textes `due <= ?` reste chronologique.
+// Toujours le même, pour que la comparaison de textes `next_review_at <= ?` reste chronologique.
 const DB_DATE_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
 
 pub(super) fn to_db_date(date: DateTime<Utc>) -> String {
@@ -79,7 +79,7 @@ pub(super) fn directions_for(content: &ItemContent) -> Vec<Direction> {
 // Colonnes FSRS d'une carte, telles que stockées.
 #[derive(Debug, sqlx::FromRow)]
 pub(super) struct FsrsRow {
-    due: String,
+    next_review_at: String,
     stability: f64,
     difficulty: f64,
     elapsed_days: i64,
@@ -109,7 +109,7 @@ impl FsrsRow {
     // Ligne => carte rs_fsrs prête à être planifiée.
     pub(super) fn to_fsrs(&self, now: DateTime<Utc>) -> Result<rs_fsrs::Card, AppError> {
         Ok(rs_fsrs::Card {
-            due: from_db_date(&self.due, "due")?,
+            due: from_db_date(&self.next_review_at, "next_review_at")?,
             stability: self.stability,
             difficulty: self.difficulty,
             elapsed_days: self.elapsed_days,
@@ -194,10 +194,10 @@ impl SessionRow {
     }
 }
 
-// Résultat d'une révision : prochaine échéance (UTC, format de la base).
+// Résultat d'une révision : date de prochaine révision (UTC, format de la base).
 #[derive(Debug, serde::Serialize)]
 pub(crate) struct ReviewResult {
-    pub(super) due: String,
+    pub(super) next_review_at: String,
 }
 
 #[cfg(test)]
@@ -255,9 +255,9 @@ mod tests {
     #[test]
     fn date_aller_retour_a_la_seconde() {
         let text = "2026-11-22 08:30:05";
-        let date = from_db_date(text, "due");
+        let date = from_db_date(text, "next_review_at");
         assert_eq!(date.map(to_db_date).ok().as_deref(), Some(text));
-        assert!(from_db_date("2026-11-22T08:30:05Z", "due").is_err());
+        assert!(from_db_date("2026-11-22T08:30:05Z", "next_review_at").is_err());
     }
 
     #[test]

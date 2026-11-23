@@ -7,8 +7,9 @@ use crate::items::ItemContent;
 
 // Les deux requêtes de session ne proposent que les cartes d'éléments actifs.
 
-// Cartes déjà vues dont l'échéance est passée (`now` au format de la base), les plus en retard d'abord.
-pub(super) async fn find_due(
+// Cartes à réviser : déjà vues, dont la date de prochaine révision est passée (`now` au format
+// de la base). Les plus en retard d'abord.
+pub(super) async fn find_to_review(
     pool: &SqlitePool,
     lesson_id: Option<i64>,
     now: &str,
@@ -22,8 +23,8 @@ pub(super) async fn find_due(
         WHERE i.active = 1
           AND (?1 IS NULL OR i.lesson_id = ?1)
           AND c.state <> 0
-          AND c.due <= ?2
-        ORDER BY c.due, c.id
+          AND c.next_review_at <= ?2
+        ORDER BY c.next_review_at, c.id
         "#,
     )
     .bind(lesson_id)
@@ -76,7 +77,7 @@ pub(super) async fn find_fsrs_state(
 ) -> Result<Option<FsrsRow>, sqlx::Error> {
     sqlx::query_as::<_, FsrsRow>(
         r#"
-        SELECT due, stability, difficulty, elapsed_days, scheduled_days,
+        SELECT next_review_at, stability, difficulty, elapsed_days, scheduled_days,
                reps, lapses, state, last_review
         FROM card
         WHERE id = ?
@@ -98,12 +99,12 @@ pub(super) async fn save_review(
     sqlx::query(
         r#"
         UPDATE card
-        SET due = ?, stability = ?, difficulty = ?, elapsed_days = ?, scheduled_days = ?,
+        SET next_review_at = ?, stability = ?, difficulty = ?, elapsed_days = ?, scheduled_days = ?,
             reps = ?, lapses = ?, state = ?, last_review = ?
         WHERE id = ?
         "#,
     )
-    .bind(to_db_date(card.due))
+    .bind(to_db_date(card.due)) // `due` : nom du champ dans rs_fsrs
     .bind(card.stability)
     .bind(card.difficulty)
     .bind(card.elapsed_days)

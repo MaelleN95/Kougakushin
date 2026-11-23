@@ -20,15 +20,16 @@ pub(super) async fn build_session(
     lesson_id: Option<i64>,
     now: DateTime<Utc>,
 ) -> Result<Vec<ReviewCard>, AppError> {
-    let due = repository::find_due(pool, lesson_id, &to_db_date(now)).await?;
+    let to_review = repository::find_to_review(pool, lesson_id, &to_db_date(now)).await?;
 
     let since = to_db_date(start_of_local_day(now));
     let already_new = repository::count_new_reviewed_since(pool, &since).await?;
     let remaining_new = (NEW_CARDS_PER_DAY - already_new).max(0);
     let new = repository::find_new(pool, lesson_id, remaining_new).await?;
 
-    // chain : les cartes dues d'abord, puis les nouvelles.
-    due.into_iter()
+    // chain : les cartes à réviser d'abord, puis les nouvelles.
+    to_review
+        .into_iter()
         .chain(new)
         .map(SessionRow::into_review_card)
         .collect()
@@ -51,7 +52,7 @@ pub(super) async fn apply_review(
 
     tx.commit().await?;
     Ok(ReviewResult {
-        due: to_db_date(info.card.due),
+        next_review_at: to_db_date(info.card.due), // `due` : nom du champ dans rs_fsrs
     })
 }
 
@@ -154,7 +155,7 @@ mod tests {
                 .await
                 .unwrap();
             assert!(
-                serde_json::to_value(&result).unwrap()["due"]
+                serde_json::to_value(&result).unwrap()["next_review_at"]
                     .as_str()
                     .unwrap()
                     > "2026-11-22 12:00:00"
@@ -189,7 +190,7 @@ mod tests {
             apply_review(&pool, 1, ReviewRating::Again, noon())
                 .await
                 .unwrap();
-            // Le lendemain, elle est due : proposée en premier, avant les nouvelles.
+            // Le lendemain, elle est à réviser : proposée en premier, avant les nouvelles.
             let ids = session_ids(&pool, noon() + Duration::days(1)).await;
             assert_eq!(ids.first(), Some(&1));
         });

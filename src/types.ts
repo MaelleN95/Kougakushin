@@ -94,5 +94,5 @@ export type ReviewCard = {
 export type ReviewRating = "again" | "hard" | "good" | "easy";
 
 export type ReviewResult = {
-  due: string; // prochaine échéance, UTC
+  next_review_at: string; // date de prochaine révision, UTC
 };

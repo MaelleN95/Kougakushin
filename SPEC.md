@@ -67,7 +67,7 @@ Chaque élément a un booléen **actif** (par défaut oui). Un élément inactif
   2. Japonais (kana) → français
   3. Kanji → lecture + sens (seulement si le kanji est renseigné)
 - Chaque carte a son propre suivi FSRS.
-- Session : "révisions dues aujourd'hui" + au plus **N nouvelles** par jour (N réglable, 10 par défaut). Option : réviser une leçon précise.
+- Session : "cartes à réviser aujourd'hui" + au plus **N nouvelles** par jour (N réglable, 10 par défaut). Option : réviser une leçon précise.
 - Je révèle la réponse, puis je note : **À revoir / Difficile / Bien / Facile**.
 - Fin de session : nombre de cartes, répartition des notes.
 
@@ -145,7 +145,7 @@ item      (id, lesson_id, kind ['vocab'|'grammar'], active,
            title, explanation,                            -- grammar
            example_jp, example_fr, created_at, updated_at)
 card      (id, item_id, direction ['fr_jp'|'jp_fr'|'kanji_read'],
-           due, stability, difficulty, reps, lapses, state, last_review)
+           next_review_at, stability, difficulty, reps, lapses, state, last_review)
 review_log(id, card_id, rating, reviewed_at)
 setting   (key, value)
 ```

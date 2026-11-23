@@ -2,6 +2,7 @@
 
 mod client;
 mod commands;
+mod conversation;
 mod knowledge_prompt;
 mod translation;
 
@@ -10,4 +11,7 @@ pub(crate) use client::Ollama;
 
 // Commandes pour `generate_handler!` dans lib.rs.
 pub(crate) use commands::check_ollama;
+pub(crate) use conversation::{
+    end_conversation, list_conversation_themes, reply_conversation, start_conversation,
+};
 pub(crate) use translation::{correct_translation, generate_translation};

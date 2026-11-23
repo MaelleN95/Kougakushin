@@ -35,6 +35,11 @@ pub(super) fn is_kanji(c: char) -> bool {
     ('\u{4E00}'..='\u{9FFF}').contains(&c) || ('\u{3400}'..='\u{4DBF}').contains(&c)
 }
 
+// Katakana (bloc Unicode 30A0-30FF, avec la barre d'allongement ー), hors point médian ・.
+fn is_katakana(c: char) -> bool {
+    ('\u{30A1}'..='\u{30FA}').contains(&c) || c == 'ー'
+}
+
 // Mots et kanji d'une phrase absents de ma base.
 // - `declared` : mots que l'IA déclare avoir utilisés (forme du dictionnaire) ;
 // - kanji : vérifiés caractère par caractère dans la phrase elle-même (fiable, sans l'IA).
@@ -58,6 +63,19 @@ pub(super) fn unknown_words(
         let word = word.trim();
         if !word.is_empty() && !known.contains(word) && !unknown.iter().any(|u| u == word) {
             unknown.push(word.to_string());
+        }
+    }
+    // Mots en katakana (emprunts : コーヒー, テーブル...) : ils ne se conjuguent pas, on peut donc
+    // les comparer tels quels, même si l'IA ne les a pas déclarés. Possible grâce aux espaces (D10).
+    let known_katakana = |token: &str| known.contains(token);
+    for token in japanese.split_whitespace() {
+        let token = token.trim_matches(|c: char| !is_katakana(c));
+        if !token.is_empty()
+            && token.chars().all(is_katakana)
+            && !known_katakana(token)
+            && !unknown.iter().any(|u| u == token)
+        {
+            unknown.push(token.to_string());
         }
     }
     for c in japanese.chars().filter(|&c| is_kanji(c)) {

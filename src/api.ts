@@ -2,6 +2,10 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  AssistantMessage,
+  ChatTurn,
+  ConversationStart,
+  ConversationSummary,
   Correction,
   Item,
   ItemFilter,
@@ -13,6 +17,7 @@ import type {
   ReviewResult,
   ReviewSession,
   Settings,
+  ThemeInfo,
   TranslationDirection,
   TranslationExercise,
 } from "./types";
@@ -49,6 +54,15 @@ export const api = {
   ) => invoke<TranslationExercise>("generate_translation", { lessonIds, direction, previous }),
   correctTranslation: (exercise: TranslationExercise, answer: string) =>
     invoke<Correction>("correct_translation", { exercise, answer }),
+
+  listConversationThemes: () => invoke<ThemeInfo[]>("list_conversation_themes"),
+  // themeId "surprise" = tirage au sort côté Rust.
+  startConversation: (lessonIds: number[], themeId: string) =>
+    invoke<ConversationStart>("start_conversation", { lessonIds, themeId }),
+  replyConversation: (lessonIds: number[], themeId: string, history: ChatTurn[]) =>
+    invoke<AssistantMessage>("reply_conversation", { lessonIds, themeId, history }),
+  endConversation: (lessonIds: number[], themeId: string, history: ChatTurn[]) =>
+    invoke<ConversationSummary>("end_conversation", { lessonIds, themeId, history }),
 };
 
 // Les erreurs Rust arrivent sous forme de chaîne (voir src-tauri/src/error.rs).

@@ -7,7 +7,10 @@ mod items;
 mod lessons;
 mod settings;
 
-use ai::{check_ollama, correct_translation, generate_translation};
+use ai::{
+    check_ollama, correct_translation, end_conversation, generate_translation,
+    list_conversation_themes, reply_conversation, start_conversation,
+};
 use cards::{get_review_session, review_card};
 use items::{create_item, delete_item, list_items, set_item_active, update_item};
 use lessons::{create_lesson, delete_lesson, list_lessons, update_lesson};
@@ -60,7 +63,11 @@ pub fn run() {
             update_settings,
             check_ollama,
             generate_translation,
-            correct_translation
+            correct_translation,
+            list_conversation_themes,
+            start_conversation,
+            reply_conversation,
+            end_conversation
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

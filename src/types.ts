@@ -139,3 +139,33 @@ export type Correction = {
   correction: string;
   explanation: string;
 };
+
+// --- Conversation ---
+
+export type ThemeInfo = { id: string; label: string };
+
+// Message de l'IA : traduction et indice sont affichés seulement à la demande.
+export type AssistantMessage = {
+  japanese: string;
+  french: string;
+  hint: string;
+  unknown_words: string[];
+};
+
+export type ConversationStart = {
+  theme_id: string;
+  theme_label: string;
+  scenario: string; // présentation de la situation, en français
+  message: AssistantMessage;
+};
+
+// Un message de l'historique envoyé à Rust (miroir de ChatTurn).
+export type ChatTurn = { role: "user" | "assistant"; content: string };
+
+export type SummaryError = { student: string; correction: string; explanation: string };
+
+export type ConversationSummary = {
+  errors: SummaryError[];
+  strengths: string[];
+  to_review: string[];
+};

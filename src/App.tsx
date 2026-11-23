@@ -1,6 +1,7 @@
 // Coque de l'application : en-tête et navigation entre les écrans.
 
 import { useState } from "react";
+import ConversationPage from "./components/ConversationPage";
 import ItemsPage from "./components/ItemsPage";
 import LessonsPage from "./components/LessonsPage";
 import ReviewPage from "./components/ReviewPage";
@@ -8,11 +9,12 @@ import SettingsPage from "./components/SettingsPage";
 import TranslationPage from "./components/TranslationPage";
 import "./App.css";
 
-type Page = "review" | "translation" | "items" | "lessons" | "settings";
+type Page = "review" | "translation" | "conversation" | "items" | "lessons" | "settings";
 
 const PAGES: { id: Page; label: string }[] = [
   { id: "review", label: "Réviser" },
   { id: "translation", label: "Traduction" },
+  { id: "conversation", label: "Conversation" },
   { id: "items", label: "Éléments" },
   { id: "lessons", label: "Leçons" },
   { id: "settings", label: "Réglages" },
@@ -43,6 +45,7 @@ export default function App() {
       <main className="mx-auto max-w-4xl p-6">
         {page === "review" && <ReviewPage />}
         {page === "translation" && <TranslationPage />}
+        {page === "conversation" && <ConversationPage />}
         {page === "items" && <ItemsPage />}
         {page === "lessons" && <LessonsPage />}
         {page === "settings" && <SettingsPage />}

@@ -218,7 +218,7 @@ async fn generate_with(
 
     for _ in 0..MAX_ATTEMPTS {
         let user = generation_user_prompt(knowledge, previous, &rejected);
-        let sentence: GeneratedSentence = ollama
+        let result: Result<GeneratedSentence, AppError> = ollama
             .chat_json(ChatRequest {
                 model,
                 system: &system,
@@ -226,7 +226,12 @@ async fn generate_with(
                 schema: generation_schema(),
                 temperature: 0.8, // de la variété d'une phrase à l'autre
             })
-            .await?;
+            .await;
+        // JSON illisible : on retente (essai suivant) au lieu d'échouer tout de suite.
+        let sentence = match result {
+            Err(AppError::InvalidAiResponse) => continue,
+            other => other?,
+        };
         let unknown = unknown_words(&sentence.japanese, &sentence.words, knowledge);
         let exercise = TranslationExercise {
             direction,

@@ -46,13 +46,38 @@ struct ChatMessage {
     content: String,
 }
 
-// Une demande à l'IA : consignes (system), question (user), forme JSON imposée.
+// Auteur d'un message : l'élève (user) ou l'IA (assistant). Noms imposés par Ollama.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Role {
+    User,
+    Assistant,
+}
+
+// Un message d'une conversation (aussi reçu du front, d'où deny_unknown_fields).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ChatTurn {
+    pub(crate) role: Role,
+    pub(crate) content: String,
+}
+
+impl ChatTurn {
+    pub(crate) fn user(content: impl Into<String>) -> ChatTurn {
+        ChatTurn {
+            role: Role::User,
+            content: content.into(),
+        }
+    }
+}
+
+// Une demande à l'IA : consignes (system), échanges (turns), forme JSON imposée.
 pub(crate) struct ChatRequest<'a> {
     pub(crate) model: &'a str,
     pub(crate) system: &'a str,
-    pub(crate) user: &'a str,
+    pub(crate) turns: &'a [ChatTurn], // dans l'ordre ; le dernier est la demande en cours
     pub(crate) schema: serde_json::Value, // schéma JSON que la réponse doit respecter
-    pub(crate) temperature: f64,          // 0 = déterministe, 1 = très varié
+    pub(crate) temperature: f64,      // 0 = déterministe, 1 = très varié
 }
 
 impl Ollama {
@@ -104,16 +129,18 @@ impl Ollama {
         &self,
         request: ChatRequest<'_>,
     ) -> Result<T, AppError> {
+        // Consignes d'abord, puis les échanges dans l'ordre.
+        let mut messages = vec![serde_json::json!({ "role": "system", "content": request.system })];
+        for turn in request.turns {
+            messages.push(serde_json::json!({ "role": turn.role, "content": turn.content }));
+        }
         let body = serde_json::json!({
             "model": request.model,
             "stream": false,
             "think": false,
             "format": request.schema,
             "options": { "temperature": request.temperature },
-            "messages": [
-                { "role": "system", "content": request.system },
-                { "role": "user", "content": request.user },
-            ],
+            "messages": messages,
         });
         let response = self
             .http

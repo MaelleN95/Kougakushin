@@ -1,13 +1,14 @@
 // Exercice de traduction (SPEC.md 3.4) : l'IA crée une phrase avec mes connaissances,
 // le code vérifie qu'elle n'utilise rien d'inconnu (garde-fou), puis l'IA corrige ma traduction.
 
-use std::collections::HashSet;
-
 use serde_json::json;
 use sqlx::SqlitePool;
 use tauri::State;
 
-use super::client::{ChatRequest, Ollama};
+use super::client::{ChatRequest, ChatTurn, Ollama};
+use super::knowledge_prompt::{
+    is_kanji, kanji_reminder, knowledge_rules, pick_index, unknown_words, writing_rule,
+};
 use crate::error::AppError;
 use crate::items::{self, Knowledge};
 use crate::settings;
@@ -16,30 +17,6 @@ use crate::settings;
 const MAX_ATTEMPTS: usize = 3;
 // Phrases récentes transmises à l'IA pour qu'elle ne se répète pas.
 const MAX_PREVIOUS: usize = 5;
-// Longueur maximale d'une explication de grammaire dans les consignes (prompt plus court).
-const MAX_EXPLANATION_CHARS: usize = 200;
-
-// Mots grammaticaux jamais signalés comme inconnus (particules, copule, terminaisons polies).
-const FUNCTION_WORDS: [&str; 18] = [
-    "は",
-    "が",
-    "を",
-    "に",
-    "へ",
-    "で",
-    "と",
-    "も",
-    "の",
-    "か",
-    "よ",
-    "ね",
-    "から",
-    "まで",
-    "です",
-    "だ",
-    "ます",
-    "ません",
-];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -83,132 +60,17 @@ pub(crate) struct Correction {
     explanation: String,
 }
 
-// --- Garde-fou ---
-
-// Idéogramme CJK (kanji) : blocs Unicode principal et extension A.
-fn is_kanji(c: char) -> bool {
-    ('\u{4E00}'..='\u{9FFF}').contains(&c) || ('\u{3400}'..='\u{4DBF}').contains(&c)
-}
-
-// Mots et kanji de la phrase absents de ma base.
-// - mots : ceux que l'IA déclare avoir utilisés (forme du dictionnaire) ;
-// - kanji : vérifiés caractère par caractère dans la phrase elle-même (fiable, sans l'IA).
-fn unknown_words(sentence: &GeneratedSentence, knowledge: &Knowledge) -> Vec<String> {
-    let mut known: HashSet<&str> = FUNCTION_WORDS.into_iter().collect();
-    let mut known_kanji: HashSet<char> = HashSet::new();
-    for word in &knowledge.words {
-        known.insert(word.kana.trim());
-        if let Some(kanji) = &word.kanji {
-            known.insert(kanji.trim());
-            known_kanji.extend(kanji.chars().filter(|&c| is_kanji(c)));
-        }
-    }
-
-    let mut unknown: Vec<String> = Vec::new();
-    for word in &sentence.words {
-        let word = word.trim();
-        if !word.is_empty() && !known.contains(word) && !unknown.iter().any(|u| u == word) {
-            unknown.push(word.to_string());
-        }
-    }
-    for c in sentence.japanese.chars().filter(|&c| is_kanji(c)) {
-        let kanji = c.to_string();
-        if !known_kanji.contains(&c) && !unknown.contains(&kanji) {
-            unknown.push(kanji);
-        }
-    }
-    unknown
-}
-
 // --- Consignes envoyées à l'IA ---
 
-fn truncate(text: &str, max_chars: usize) -> String {
-    match text.char_indices().nth(max_chars) {
-        Some((byte_index, _)) => format!("{}...", &text[..byte_index]),
-        None => text.to_string(),
-    }
-}
-
-// Règle d'écriture commune à la génération et à la correction (décisions D9 et D10).
-fn writing_rule(allowed_kanji: &str) -> String {
-    let kanji = if allowed_kanji.is_empty() {
-        "N'utilise AUCUN kanji.".to_string()
-    } else {
-        format!("Kanji autorisés UNIQUEMENT parmi : {allowed_kanji} (aucun autre kanji).")
-    };
-    format!(
-        "Écriture : hiragana et katakana. {kanji} \
-         Mets une espace entre chaque mot, et entre un mot et sa particule \
-         (exemple : わたし は がっこう に いきます)."
-    )
-}
-
-fn allowed_kanji(knowledge: &Knowledge) -> String {
-    let mut seen: Vec<char> = Vec::new();
-    for word in &knowledge.words {
-        for c in word
-            .kanji
-            .iter()
-            .flat_map(|k| k.chars())
-            .filter(|&c| is_kanji(c))
-        {
-            if !seen.contains(&c) {
-                seen.push(c);
-            }
-        }
-    }
-    seen.into_iter().collect()
-}
-
 fn generation_system_prompt(knowledge: &Knowledge) -> String {
-    let vocabulary: Vec<String> = knowledge
-        .words
-        .iter()
-        .map(|w| match &w.kanji {
-            Some(kanji) => format!("- {} ({kanji}) : {}", w.kana, w.meaning),
-            None => format!("- {} : {}", w.kana, w.meaning),
-        })
-        .collect();
-    let grammar: Vec<String> = knowledge
-        .grammar
-        .iter()
-        .map(|g| {
-            format!(
-                "- {} : {}",
-                g.title,
-                truncate(&g.explanation, MAX_EXPLANATION_CHARS)
-            )
-        })
-        .collect();
-    let grammar = if grammar.is_empty() {
-        "(aucun point saisi)".to_string()
-    } else {
-        grammar.join("\n")
-    };
-
     format!(
-        "Tu es un professeur de japonais expérimenté, de langue maternelle japonaise, exigeant \
-         sur le naturel. Ton élève est une francophone qui apprend en cours. \
-         Tu crées UNE phrase japonaise et sa traduction française.\n\
-         Qualité attendue :\n\
-         - La phrase doit sonner naturelle pour un Japonais, comme dans une vraie conversation. \
-         Omets le sujet quand il est évident, comme le font les Japonais : n'écris わたし は que \
-         si la phrase en a vraiment besoin (contraste, présentation).\n\
-         - Exploite au mieux ses connaissances : combine plusieurs mots et points de grammaire, \
-         4 à 10 mots, pas seulement « A は B を V ます ».\n\
-         - La traduction française est naturelle aussi (pas du mot à mot).\n\
-         Règles strictes :\n\
-         1. Vocabulaire : UNIQUEMENT les mots de la liste ci-dessous (conjugués si besoin), \
-         plus les particules.\n\
-         2. Grammaire : UNIQUEMENT les points de la liste ci-dessous, plus les particules de base \
-         et la forme polie です / ます.\n\
-         3. {} Écris avec leur kanji les mots de la liste qui en ont un.\n\
-         4. Dans `words`, liste les noms, verbes, adjectifs et adverbes de ta phrase, à leur forme \
-         du dictionnaire, écrits exactement comme dans la liste de vocabulaire \
-         (sans les particules ni です / ます).\n\n\
-         Vocabulaire :\n{}\n\nGrammaire :\n{grammar}",
-        writing_rule(&allowed_kanji(knowledge)),
-        vocabulary.join("\n"),
+        "Tu es un professeur de japonais expérimenté, de langue maternelle japonaise, exigeant \n         sur le naturel. Ton élève est une francophone qui apprend en cours. \n         Tu crées UNE phrase japonaise et sa traduction française.
+\n         Qualité attendue :
+\n         - La phrase doit sonner naturelle pour un Japonais, comme dans une vraie conversation. \n         Omets le sujet quand il est évident, comme le font les Japonais : n'écris わたし は que \n         si la phrase en a vraiment besoin (contraste, présentation).
+\n         - Exploite au mieux ses connaissances : combine plusieurs mots et points de grammaire, \n         4 à 10 mots, pas seulement « A は B を V ます ».
+\n         - La traduction française est naturelle aussi (pas du mot à mot).
+{}",
+        knowledge_rules(knowledge)
     )
 }
 
@@ -223,13 +85,8 @@ const SENTENCE_STYLES: [&str; 6] = [
     "une phrase qui relie deux idées",
 ];
 
-// Tirage au sort sans dépendance : les nanosecondes de l'horloge varient à chaque appel.
 fn pick_style() -> &'static str {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos() as usize)
-        .unwrap_or(0);
-    SENTENCE_STYLES[nanos % SENTENCE_STYLES.len()]
+    SENTENCE_STYLES[pick_index(SENTENCE_STYLES.len())]
 }
 
 fn generation_user_prompt(
@@ -241,17 +98,9 @@ fn generation_user_prompt(
         "Crée une nouvelle phrase : {}, si sa grammaire est connue (sinon, une autre forme).",
         pick_style()
     );
-    // Rappel explicite, mot par mot : une consigne générale sur les kanji est ignorée par le modèle.
-    let with_kanji: Vec<String> = knowledge
-        .words
-        .iter()
-        .filter_map(|w| w.kanji.as_ref().map(|k| format!("{k} (pas {})", w.kana)))
-        .collect();
-    if !with_kanji.is_empty() {
-        prompt.push_str(&format!(
-            " Écris obligatoirement : {}.",
-            with_kanji.join(", ")
-        ));
+    if let Some(reminder) = kanji_reminder(knowledge) {
+        prompt.push(' ');
+        prompt.push_str(&reminder);
     }
     if !knowledge.focus.is_empty() {
         let focus: Vec<&str> = knowledge.focus.iter().map(|w| w.kana.as_str()).collect();
@@ -373,12 +222,12 @@ async fn generate_with(
             .chat_json(ChatRequest {
                 model,
                 system: &system,
-                user: &user,
+                turns: &[ChatTurn::user(user)],
                 schema: generation_schema(),
                 temperature: 0.8, // de la variété d'une phrase à l'autre
             })
             .await?;
-        let unknown = unknown_words(&sentence, knowledge);
+        let unknown = unknown_words(&sentence.japanese, &sentence.words, knowledge);
         let exercise = TranslationExercise {
             direction,
             japanese: sentence.japanese.trim().to_string(),
@@ -413,7 +262,7 @@ async fn correct_with(
         .chat_json(ChatRequest {
             model,
             system: &correction_system_prompt(exercise),
-            user: &correction_user_prompt(exercise, answer),
+            turns: &[ChatTurn::user(correction_user_prompt(exercise, answer))],
             schema: correction_schema(),
             temperature: 0.2, // correction : on veut de la constance
         })
@@ -466,6 +315,7 @@ pub(crate) async fn correct_translation(
 
 #[cfg(test)]
 mod tests {
+    use super::super::knowledge_prompt::truncate;
     use super::*;
     use crate::items::{KnownGrammar, KnownWord};
 
@@ -508,7 +358,7 @@ mod tests {
             "私 は りんご を 食べます",
             &["わたし", "りんご", "たべる", "です"],
         );
-        assert!(unknown_words(&s, &knowledge()).is_empty());
+        assert!(unknown_words(&s.japanese, &s.words, &knowledge()).is_empty());
     }
 
     #[test]
@@ -517,7 +367,10 @@ mod tests {
             "私 は 水 を のみます 水",
             &["わたし", "みず", "のむ", "のむ"],
         );
-        assert_eq!(unknown_words(&s, &knowledge()), ["みず", "のむ", "水"]);
+        assert_eq!(
+            unknown_words(&s.japanese, &s.words, &knowledge()),
+            ["みず", "のむ", "水"]
+        );
     }
 
     #[test]

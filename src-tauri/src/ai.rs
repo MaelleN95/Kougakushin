@@ -2,6 +2,7 @@
 
 mod client;
 mod commands;
+mod knowledge_prompt;
 mod translation;
 
 // Client partagé, enregistré au démarrage dans lib.rs.

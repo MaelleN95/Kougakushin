@@ -89,7 +89,7 @@ pub(super) fn unknown_words(
 
 // Forme comparable d'une phrase japonaise, pour savoir si deux phrases sont "les mêmes" :
 // sans espaces ni ponctuation, et avec mes mots en kanji réécrits en kana (食べます => たべます).
-// Sert à écarter les fausses erreurs de l'IA (« correction » identique à ma phrase).
+// Sert à écarter les fausses erreurs de l'IA ("correction" identique à ma phrase).
 pub(super) fn normalize_japanese(text: &str, knowledge: &Knowledge) -> String {
     let mut normalized: String = text
         .chars()

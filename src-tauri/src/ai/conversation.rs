@@ -343,7 +343,7 @@ async fn summarize(
     // Le modèle signale parfois des erreurs inexistantes : chacune est revérifiée.
     let mut confirmed = Vec::new();
     for error in summary.errors {
-        // 1. Contrôle par le code : « correction » identique à ma phrase (espaces, ponctuation,
+        // 1. Contrôle par le code : "correction" identique à ma phrase (espaces, ponctuation,
         //    kanji / kana mis à part) => pas une erreur.
         if normalize_japanese(&error.student, knowledge)
             == normalize_japanese(&error.correction, knowledge)

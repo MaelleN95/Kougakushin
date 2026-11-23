@@ -72,7 +72,7 @@ fn generation_system_prompt(knowledge: &Knowledge) -> String {
          Omets le sujet quand il est évident, comme le font les Japonais : n'écris わたし は que \
          si la phrase en a vraiment besoin (contraste, présentation).\n\
          - Exploite au mieux ses connaissances : combine plusieurs mots et points de grammaire, \
-         4 à 10 mots, pas seulement « A は B を V ます ».\n{}",
+         4 à 10 mots, pas seulement 'A は B を V ます'.\n{}",
         knowledge_rules(knowledge)
     )
 }
@@ -169,7 +169,7 @@ fn correction_system_prompt(exercise: &TranslationExercise) -> String {
          - correction : la meilleure traduction {target}, au plus près de celle de l'élève \
          quand c'est possible. {rule}\n\
          - explanation : en français, 1 à 3 phrases précises qui nomment la notion en jeu \
-         (ex. « particule に de destination », « négation polie 〜ません »). Pas de compliments \
+         (ex. 'particule に de destination', 'négation polie 〜ません'). Pas de compliments \
          vagues. Si c'est correct, signale une nuance ou une autre formulation naturelle utile."
     )
 }
@@ -340,13 +340,13 @@ pub(crate) async fn correct_translation(
     let mut correction = correct_with(ollama.inner(), &model, &exercise, answer.trim()).await?;
 
     // Garde-fou : l'IA juge parfois fausse une réponse identique à sa propre correction
-    // (espaces, ponctuation ou kanji / kana mis à part). Le code la remet à « correct ».
+    // (espaces, ponctuation ou kanji / kana mis à part). Le code la remet à "correct".
     if exercise.direction == TranslationDirection::FrJp && correction.verdict != Verdict::Correct {
         let knowledge = items::find_knowledge(pool.inner(), &[]).await?; // tous mes kanji
         if normalize_japanese(answer.trim(), &knowledge)
             == normalize_japanese(&correction.correction, &knowledge)
         {
-            log::info!("Verdict corrigé en « correct » (réponse identique) : {answer}");
+            log::info!("Verdict corrigé en 'correct' (réponse identique) : {answer}");
             correction.verdict = Verdict::Correct;
             correction.explanation =
                 "Ta traduction est correcte (elle correspond à la correction proposée).".into();

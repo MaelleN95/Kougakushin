@@ -6,7 +6,8 @@ use sqlx::SqlitePool;
 use tauri::State;
 
 use super::model::{
-    ReviewRating, ReviewResult, ReviewSession, SessionRow, start_of_local_day, to_db_date,
+    ReviewRating, ReviewResult, ReviewSession, SessionRow, SessionScope, start_of_local_day,
+    to_db_date,
 };
 use super::repository;
 use crate::error::AppError;
@@ -16,7 +17,7 @@ use crate::settings;
 // augmentée de `extra_new` quand l'utilisatrice demande "N nouvelles de plus".
 pub(super) async fn build_session(
     pool: &SqlitePool,
-    lesson_id: Option<i64>,
+    scope: SessionScope,
     extra_new: i64,
     now: DateTime<Utc>,
 ) -> Result<ReviewSession, AppError> {
@@ -25,16 +26,16 @@ pub(super) async fn build_session(
             "Le nombre de cartes supplémentaires ne peut pas être négatif",
         ));
     }
-    let to_review = repository::find_to_review(pool, lesson_id, &to_db_date(now)).await?;
+    let to_review = repository::find_to_review(pool, scope, &to_db_date(now)).await?;
 
     let per_day = settings::load(pool).await?.new_cards_per_day;
     let since = to_db_date(start_of_local_day(now));
     let already_new = repository::count_new_reviewed_since(pool, &since).await?;
     let remaining_new = (per_day + extra_new - already_new).max(0);
-    let new = repository::find_new(pool, lesson_id, remaining_new).await?;
+    let new = repository::find_new(pool, scope, remaining_new).await?;
 
     // Reste-t-il des nouvelles cartes au-delà de celles proposées ? (bouton "N de plus")
-    let more_new_available = repository::count_new(pool, lesson_id).await? > new.len() as i64;
+    let more_new_available = repository::count_new(pool, scope).await? > new.len() as i64;
 
     // chain : les cartes à réviser d'abord, puis les nouvelles.
     let cards = to_review
@@ -70,14 +71,22 @@ pub(super) async fn apply_review(
     })
 }
 
-// JS : invoke("get_review_session", { lessonId: 3, extraNew: 10 }) ; les deux sont facultatifs.
+// JS : invoke("get_review_session", { lessonId: 3, bookId: null, extraNew: 10 }) ; tous facultatifs.
+// lessonId et bookId ensemble : refusé, la session porte sur l'un ou l'autre.
 #[tauri::command]
 pub(crate) async fn get_review_session(
     pool: State<'_, SqlitePool>,
     lesson_id: Option<i64>,
+    book_id: Option<i64>,
     extra_new: Option<i64>,
 ) -> Result<ReviewSession, AppError> {
-    build_session(pool.inner(), lesson_id, extra_new.unwrap_or(0), Utc::now()).await
+    if lesson_id.is_some() && book_id.is_some() {
+        return Err(AppError::Validation(
+            "Choisis une leçon ou un manuel, pas les deux",
+        ));
+    }
+    let scope = SessionScope { lesson_id, book_id };
+    build_session(pool.inner(), scope, extra_new.unwrap_or(0), Utc::now()).await
 }
 
 // JS : invoke("review_card", { cardId: 12, rating: "good" }).
@@ -96,7 +105,7 @@ mod tests {
     use sqlx::SqlitePool;
     use sqlx::sqlite::SqlitePoolOptions;
 
-    use super::super::model::ReviewRating;
+    use super::super::model::{ReviewRating, SessionScope};
     use super::{apply_review, build_session};
     use crate::error::AppError;
 
@@ -139,7 +148,7 @@ mod tests {
 
     // Ids des cartes proposées, dans l'ordre.
     async fn session_ids(pool: &SqlitePool, now: DateTime<Utc>) -> Vec<i64> {
-        build_session(pool, None, 0, now)
+        build_session(pool, SessionScope::default(), 0, now)
             .await
             .unwrap()
             .cards
@@ -216,15 +225,62 @@ mod tests {
     fn bouton_n_nouvelles_de_plus() {
         tauri::async_runtime::block_on(async {
             let pool = pool_with_words(6).await; // 12 nouvelles cartes actives
-            let session = build_session(&pool, None, 0, noon()).await.unwrap();
+            let session = build_session(&pool, SessionScope::default(), 0, noon())
+                .await
+                .unwrap();
             assert_eq!(session.cards.len(), 10);
             assert!(session.more_new_available);
 
-            let more = build_session(&pool, None, 10, noon()).await.unwrap();
+            let more = build_session(&pool, SessionScope::default(), 10, noon())
+                .await
+                .unwrap();
             assert_eq!(more.cards.len(), 12); // limite 20, seulement 12 disponibles
             assert!(!more.more_new_available);
 
-            assert!(build_session(&pool, None, -1, noon()).await.is_err());
+            assert!(
+                build_session(&pool, SessionScope::default(), -1, noon())
+                    .await
+                    .is_err()
+            );
+        });
+    }
+
+    #[test]
+    fn session_limitee_a_une_lecon_ou_a_un_manuel() {
+        tauri::async_runtime::block_on(async {
+            let pool = pool_with_words(2).await; // leçon 1 sans manuel : 4 cartes actives
+            // Manuel 1 > leçon 2 > un mot actif (item 4) et ses 2 cartes.
+            sqlx::raw_sql(
+                "INSERT INTO book (title) VALUES ('Marugoto A1');
+                 INSERT INTO lesson (title, date, book_id) VALUES ('L2', '2026-11-19', 1);
+                 INSERT INTO item (lesson_id, kind, kana, meaning) VALUES (2, 'vocab', 'み', 'y');
+                 INSERT INTO card (item_id, direction) VALUES (4, 'fr_jp'), (4, 'jp_fr');",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            let count = |scope: SessionScope| {
+                let pool = pool.clone();
+                async move {
+                    build_session(&pool, scope, 0, noon())
+                        .await
+                        .unwrap()
+                        .cards
+                        .len()
+                }
+            };
+            let book = SessionScope {
+                lesson_id: None,
+                book_id: Some(1),
+            };
+            let lesson = SessionScope {
+                lesson_id: Some(1),
+                book_id: None,
+            };
+            assert_eq!(count(book).await, 2);
+            assert_eq!(count(lesson).await, 4);
+            assert_eq!(count(SessionScope::default()).await, 6);
         });
     }
 

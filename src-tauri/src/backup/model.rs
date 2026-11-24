@@ -6,12 +6,21 @@ use crate::error::AppError;
 
 // Identifie nos fichiers, et leur format (à augmenter si la forme change).
 pub(super) const FORMAT: &str = "kougakushin";
-pub(super) const VERSION: u32 = 1;
+pub(super) const VERSION: u32 = 2; // 2 : manuels (book) ajoutés
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
+#[serde(deny_unknown_fields)]
+pub(super) struct BookRecord {
+    pub(super) id: i64,
+    pub(super) title: String,
+    pub(super) created_at: String,
+}
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
 #[serde(deny_unknown_fields)]
 pub(super) struct LessonRecord {
     pub(super) id: i64,
+    pub(super) book_id: Option<i64>,
     pub(super) title: String,
     pub(super) date: String,
     pub(super) notes: Option<String>,
@@ -81,6 +90,7 @@ pub(super) struct Backup {
     pub(super) format: String,
     pub(super) version: u32,
     pub(super) exported_at: String, // UTC
+    pub(super) books: Vec<BookRecord>,
     pub(super) lessons: Vec<LessonRecord>,
     pub(super) items: Vec<ItemRecord>,
     pub(super) cards: Vec<CardRecord>,
@@ -111,6 +121,7 @@ impl Backup {
 // Nombre d'éléments importés, affiché après l'import.
 #[derive(Debug, serde::Serialize)]
 pub(crate) struct ImportReport {
+    pub(super) books: usize,
     pub(super) lessons: usize,
     pub(super) items: usize,
     pub(super) cards: usize,

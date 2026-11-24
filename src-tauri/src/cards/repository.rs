@@ -2,16 +2,19 @@
 
 use sqlx::{SqliteConnection, SqlitePool};
 
-use super::model::{Direction, FsrsRow, SessionRow, directions_for, state_to_db, to_db_date};
+use super::model::{
+    Direction, FsrsRow, SessionRow, SessionScope, directions_for, state_to_db, to_db_date,
+};
 use crate::items::ItemContent;
 
 // Les deux requêtes de session ne proposent que les cartes d'éléments actifs.
+// `scope` : une leçon, un manuel entier, ou tout (les deux à None).
 
 // Cartes à réviser : déjà vues, dont la date de prochaine révision est passée (`now` au format
 // de la base). Les plus en retard d'abord.
 pub(super) async fn find_to_review(
     pool: &SqlitePool,
-    lesson_id: Option<i64>,
+    scope: SessionScope,
     now: &str,
 ) -> Result<Vec<SessionRow>, sqlx::Error> {
     sqlx::query_as::<_, SessionRow>(
@@ -22,13 +25,15 @@ pub(super) async fn find_to_review(
         JOIN item i ON i.id = c.item_id
         WHERE i.active = 1
           AND (?1 IS NULL OR i.lesson_id = ?1)
+          AND (?3 IS NULL OR i.lesson_id IN (SELECT id FROM lesson WHERE book_id = ?3))
           AND c.state <> 0
           AND c.next_review_at <= ?2
         ORDER BY c.next_review_at, c.id
         "#,
     )
-    .bind(lesson_id)
+    .bind(scope.lesson_id)
     .bind(now)
+    .bind(scope.book_id)
     .fetch_all(pool)
     .await
 }
@@ -36,7 +41,7 @@ pub(super) async fn find_to_review(
 // Cartes jamais vues, dans l'ordre de saisie, au plus `limit`.
 pub(super) async fn find_new(
     pool: &SqlitePool,
-    lesson_id: Option<i64>,
+    scope: SessionScope,
     limit: i64,
 ) -> Result<Vec<SessionRow>, sqlx::Error> {
     sqlx::query_as::<_, SessionRow>(
@@ -47,31 +52,33 @@ pub(super) async fn find_new(
         JOIN item i ON i.id = c.item_id
         WHERE i.active = 1
           AND (?1 IS NULL OR i.lesson_id = ?1)
+          AND (?3 IS NULL OR i.lesson_id IN (SELECT id FROM lesson WHERE book_id = ?3))
           AND c.state = 0
         ORDER BY i.id, c.id
         LIMIT ?2
         "#,
     )
-    .bind(lesson_id)
+    .bind(scope.lesson_id)
     .bind(limit)
+    .bind(scope.book_id)
     .fetch_all(pool)
     .await
 }
 
 // Nombre de cartes jamais vues (éléments actifs), toutes limites confondues.
-pub(super) async fn count_new(
-    pool: &SqlitePool,
-    lesson_id: Option<i64>,
-) -> Result<i64, sqlx::Error> {
+pub(super) async fn count_new(pool: &SqlitePool, scope: SessionScope) -> Result<i64, sqlx::Error> {
     sqlx::query_scalar(
         r#"
         SELECT COUNT(*)
         FROM card c
         JOIN item i ON i.id = c.item_id
-        WHERE i.active = 1 AND (?1 IS NULL OR i.lesson_id = ?1) AND c.state = 0
+        WHERE i.active = 1 AND c.state = 0
+          AND (?1 IS NULL OR i.lesson_id = ?1)
+          AND (?2 IS NULL OR i.lesson_id IN (SELECT id FROM lesson WHERE book_id = ?2))
         "#,
     )
-    .bind(lesson_id)
+    .bind(scope.lesson_id)
+    .bind(scope.book_id)
     .fetch_one(pool)
     .await
 }

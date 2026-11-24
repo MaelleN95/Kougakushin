@@ -5,7 +5,10 @@
 
 import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../api";
+import { groupLessons } from "../lessonGroups";
+import LessonPicker from "./LessonPicker";
 import type {
+  Book,
   Correction,
   Lesson,
   TranslationDirection,
@@ -45,6 +48,7 @@ function Key({ children }: { children: string }) {
 
 export default function TranslationPage() {
   const [lessons, setLessons] = useState<Lesson[]>([]);
+  const [books, setBooks] = useState<Book[]>([]);
   const [selectedLessons, setSelectedLessons] = useState<number[]>([]); // vide = toutes
   const [direction, setDirection] = useState<TranslationDirection>("fr_jp");
 
@@ -64,6 +68,7 @@ export default function TranslationPage() {
 
   useEffect(() => {
     api.listLessons().then(setLessons).catch((e) => setError(errorMessage(e)));
+    api.listBooks().then(setBooks).catch((e) => setError(errorMessage(e)));
     // En quittant l'écran, toute préparation en cours est abandonnée.
     return () => {
       seriesId.current += 1;
@@ -76,12 +81,6 @@ export default function TranslationPage() {
   useEffect(() => {
     if (phase === "running" && current && correction === null) input.current?.focus();
   }, [phase, current, correction]);
-
-  function toggleLesson(id: number) {
-    setSelectedLessons((list) =>
-      list.includes(id) ? list.filter((l) => l !== id) : [...list, id],
-    );
-  }
 
   // Prépare les phrases une par une ; chacune s'ajoute à la file dès qu'elle est prête.
   // `already` : phrases déjà prêtes (bouton Réessayer après une erreur), conservées.
@@ -186,19 +185,11 @@ export default function TranslationPage() {
               </button>
             ))}
           </div>
-          <div className="space-y-1">
-            <p className="text-sm font-medium">Leçons (aucune cochée = toutes)</p>
-            {lessons.map((lesson) => (
-              <label key={lesson.id} className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={selectedLessons.includes(lesson.id)}
-                  onChange={() => toggleLesson(lesson.id)}
-                />
-                {lesson.title}
-              </label>
-            ))}
-          </div>
+          <LessonPicker
+            groups={groupLessons(lessons, books)}
+            selected={selectedLessons}
+            onChange={setSelectedLessons}
+          />
           <button className="btn-primary" onClick={startSeries}>
             Commencer une série de {SERIES_LENGTH} phrases
           </button>

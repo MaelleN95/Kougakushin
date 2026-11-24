@@ -3,7 +3,9 @@
 
 import { useEffect, useState } from "react";
 import { api, errorMessage } from "../api";
-import type { Lesson, ReviewCard, ReviewRating } from "../types";
+import { groupLessons } from "../lessonGroups";
+import type { Book, Lesson, ReviewCard, ReviewRating, ReviewScope } from "../types";
+import LessonOptions from "./LessonOptions";
 import { shuffled } from "../utils";
 
 const RATINGS: { rating: ReviewRating; label: string; key: string; className: string }[] = [
@@ -60,9 +62,18 @@ const DIRECTION_LABELS = {
   kanji_read: "Lecture du kanji",
 } as const; // as const : objet en lecture seule, valeurs gardées comme littéraux
 
+// Valeur du menu de leçons => portée de la session envoyée à Rust.
+function toScope(choice: string): ReviewScope {
+  if (choice === "") return {};
+  if (choice.startsWith("book:")) return { bookId: Number(choice.slice(5)) };
+  return { lessonId: Number(choice) };
+}
+
 export default function ReviewPage() {
   const [lessons, setLessons] = useState<Lesson[]>([]);
-  const [lessonId, setLessonId] = useState<number | undefined>(undefined);
+  const [books, setBooks] = useState<Book[]>([]);
+  // Valeur du menu : "" = tout, "12" = une leçon, "book:3" = un manuel entier.
+  const [choice, setChoice] = useState("");
   const [showRomaji, setShowRomaji] = useState(true);
   const [extraStep, setExtraStep] = useState(DEFAULT_EXTRA_STEP);
   // null = session pas encore lancée.
@@ -78,6 +89,7 @@ export default function ReviewPage() {
 
   useEffect(() => {
     api.listLessons().then(setLessons).catch((e) => setError(errorMessage(e)));
+    api.listBooks().then(setBooks).catch((e) => setError(errorMessage(e)));
     api
       .getSettings()
       .then((s) => {
@@ -91,7 +103,7 @@ export default function ReviewPage() {
 
   async function startSession(extra: number) {
     try {
-      const session = await api.getReviewSession(lessonId, extra);
+      const session = await api.getReviewSession(toScope(choice), extra);
       setQueue(shuffled(session.cards));
       setMoreNewAvailable(session.more_new_available);
       setExtraNew(extra);
@@ -145,15 +157,11 @@ export default function ReviewPage() {
         <div className="card flex flex-wrap items-center gap-3">
           <select
             className="field w-auto"
-            value={lessonId ?? ""}
-            onChange={(e) => setLessonId(e.target.value ? Number(e.target.value) : undefined)}
+            value={choice}
+            onChange={(e) => setChoice(e.target.value)}
           >
             <option value="">Toutes les leçons</option>
-            {lessons.map((lesson) => (
-              <option key={lesson.id} value={lesson.id}>
-                {lesson.title}
-              </option>
-            ))}
+            <LessonOptions groups={groupLessons(lessons, books)} withBooks />
           </select>
           <button className="btn-primary" onClick={() => startSession(extraNew)}>
             Commencer

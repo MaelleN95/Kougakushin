@@ -3,8 +3,10 @@
 import { FormEvent, useRef, useState } from "react";
 import { toRomaji } from "wanakana";
 import { api, errorMessage } from "../api";
-import type { Item, ItemContent, ItemInput, ItemKind, Lesson, WordType } from "../types";
+import type { LessonGroup } from "../lessonGroups";
+import type { Item, ItemContent, ItemInput, ItemKind, WordType } from "../types";
 import { emptyToNull } from "../utils";
+import LessonOptions from "./LessonOptions";
 
 // Record<K, V> : un objet qui a exactement une valeur V pour chaque clé K.
 // Si on ajoute un WordType sans libellé, tsc refuse de compiler.
@@ -19,14 +21,20 @@ export const WORD_TYPE_LABELS: Record<WordType, string> = {
 };
 
 type Props = {
-  lessons: Lesson[];
+  lessonGroups: LessonGroup[];
   defaultLessonId: number;
   editing: Item | null; // null = création
   onSaved: () => void;
   onCancel: () => void;
 };
 
-export default function ItemForm({ lessons, defaultLessonId, editing, onSaved, onCancel }: Props) {
+export default function ItemForm({
+  lessonGroups,
+  defaultLessonId,
+  editing,
+  onSaved,
+  onCancel,
+}: Props) {
   // Valeurs de départ : celles de l'élément modifié, sinon vides.
   // Le parent change la `key` du formulaire à chaque élément édité, ce qui le recrée.
   const vocab = editing?.content.kind === "vocab" ? editing.content : null;
@@ -116,11 +124,7 @@ export default function ItemForm({ lessons, defaultLessonId, editing, onSaved, o
           value={lessonId}
           onChange={(e) => setLessonId(Number(e.target.value))}
         >
-          {lessons.map((lesson) => (
-            <option key={lesson.id} value={lesson.id}>
-              {lesson.title}
-            </option>
-          ))}
+          <LessonOptions groups={lessonGroups} />
         </select>
         <div className="flex gap-1">
           {(["vocab", "grammar"] as const).map((k) => (

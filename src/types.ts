@@ -1,10 +1,21 @@
 // Types TS miroirs des structs Rust (src-tauri/src/*/model.rs) : même forme que le JSON échangé.
 // Si un champ change côté Rust, il doit changer ici aussi.
 
+// --- Manuels ---
+
+export type Book = {
+  id: number;
+  title: string;
+  created_at: string;
+};
+
+export type BookInput = { title: string };
+
 // --- Leçons ---
 
 export type Lesson = {
   id: number;
+  book_id: number | null; // null = leçon sans manuel
   title: string;
   date: string; // AAAA-MM-JJ
   notes: string | null;
@@ -12,6 +23,7 @@ export type Lesson = {
 };
 
 export type LessonInput = {
+  book_id: number | null;
   title: string;
   date: string;
   notes: string | null;
@@ -97,6 +109,9 @@ export type ReviewResult = {
   next_review_at: string; // date de prochaine révision, UTC
 };
 
+// Cartes d'une session : une leçon, un manuel entier, ou tout ({}).
+export type ReviewScope = { lessonId?: number; bookId?: number };
+
 // Session renvoyée par get_review_session.
 export type ReviewSession = {
   cards: ReviewCard[];
@@ -177,6 +192,7 @@ export type ConversationSummary = {
 
 // Résultat d'un import (miroir de ImportReport dans src-tauri/src/backup/model.rs).
 export type ImportReport = {
+  books: number;
   lessons: number;
   items: number;
   cards: number;

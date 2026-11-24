@@ -9,6 +9,7 @@ use crate::error::AppError;
 #[derive(serde::Serialize, sqlx::FromRow)]
 pub(crate) struct Lesson {
     id: i64,
+    book_id: Option<i64>, // None = leçon sans manuel
     title: String,
     date: String,
     notes: Option<String>, // NULL en base => None
@@ -19,6 +20,7 @@ pub(crate) struct Lesson {
 #[derive(serde::Deserialize)]
 pub(crate) struct CreateLessonInput {
     // pub(super) : lus par commands.rs, invisibles hors de `lessons`.
+    pub(super) book_id: Option<i64>,
     pub(super) title: String,
     pub(super) date: String,
     pub(super) notes: Option<String>,

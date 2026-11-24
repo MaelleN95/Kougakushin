@@ -53,6 +53,14 @@ pub(crate) fn is_foreign_key_violation(error: &sqlx::Error) -> bool {
     }
 }
 
+// Vrai si la base a refusé l'opération à cause d'une contrainte UNIQUE (ex. titre de manuel déjà pris).
+pub(crate) fn is_unique_violation(error: &sqlx::Error) -> bool {
+    match error {
+        sqlx::Error::Database(db_error) => db_error.is_unique_violation(),
+        _ => false,
+    }
+}
+
 // Message pour l'utilisatrice selon la cause d'une erreur HTTP vers Ollama.
 fn ollama_message(error: &reqwest::Error) -> &'static str {
     if error.is_connect() {

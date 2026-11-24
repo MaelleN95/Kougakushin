@@ -149,6 +149,14 @@ impl ReviewRating {
 
 // --- Session de révision ---
 
+// Cartes concernées par une session : une leçon, un manuel entier (D30), ou tout.
+// Copy : deux Option<i64>, copiés sans coût à chaque requête.
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct SessionScope {
+    pub(super) lesson_id: Option<i64>,
+    pub(super) book_id: Option<i64>,
+}
+
 // Ligne brute : carte + champs utiles de son élément (toujours du vocabulaire).
 #[derive(Debug, sqlx::FromRow)]
 pub(super) struct SessionRow {

@@ -2,11 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { api, errorMessage } from "../api";
-import type { Item, ItemFilter, ItemKind, Lesson } from "../types";
+import { groupLessons } from "../lessonGroups";
+import type { Book, Item, ItemFilter, ItemKind, Lesson } from "../types";
 import ItemForm, { WORD_TYPE_LABELS } from "./ItemForm";
+import LessonOptions from "./LessonOptions";
 
 export default function ItemsPage() {
   const [lessons, setLessons] = useState<Lesson[]>([]);
+  const [books, setBooks] = useState<Book[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [filter, setFilter] = useState<ItemFilter>({ active: true });
   const [editing, setEditing] = useState<Item | null>(null);
@@ -24,6 +27,7 @@ export default function ItemsPage() {
 
   useEffect(() => {
     api.listLessons().then(setLessons).catch((e) => setError(errorMessage(e)));
+    api.listBooks().then(setBooks).catch((e) => setError(errorMessage(e)));
     api
       .getSettings()
       .then((s) => setShowRomaji(s.show_romaji))
@@ -70,7 +74,14 @@ export default function ItemsPage() {
 
   // Leçon proposée par défaut : celle du filtre, sinon la plus récente (liste triée par date).
   const defaultLessonId = filter.lesson_id ?? lessons[0].id;
-  const lessonTitle = (id: number) => lessons.find((l) => l.id === id)?.title ?? "?";
+  const lessonGroups = groupLessons(lessons, books);
+  // Leçon affichée sous un élément, précédée de son manuel s'il en a un.
+  const lessonTitle = (id: number) => {
+    const lesson = lessons.find((l) => l.id === id);
+    if (!lesson) return "?";
+    const book = books.find((b) => b.id === lesson.book_id);
+    return book ? `${book.title} - ${lesson.title}` : lesson.title;
+  };
 
   return (
     <section className="space-y-6">
@@ -79,7 +90,7 @@ export default function ItemsPage() {
       <ItemForm
         // key change => formulaire recréé : à chaque élément édité, ou si la leçon par défaut change.
         key={editing ? `edit-${editing.id}` : `new-${defaultLessonId}`}
-        lessons={lessons}
+        lessonGroups={lessonGroups}
         defaultLessonId={defaultLessonId}
         editing={editing}
         onSaved={() => {
@@ -104,11 +115,7 @@ export default function ItemsPage() {
           }
         >
           <option value="">Toutes les leçons</option>
-          {lessons.map((lesson) => (
-            <option key={lesson.id} value={lesson.id}>
-              {lesson.title}
-            </option>
-          ))}
+          <LessonOptions groups={lessonGroups} />
         </select>
         <select
           className="field w-auto"

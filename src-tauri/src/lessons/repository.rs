@@ -9,7 +9,7 @@ use super::model::Lesson;
 pub(super) async fn find_all(pool: &SqlitePool) -> Result<Vec<Lesson>, sqlx::Error> {
     sqlx::query_as::<_, Lesson>(
         r#"
-        SELECT id, title, date, notes, created_at
+        SELECT id, book_id, title, date, notes, created_at
         FROM lesson
         ORDER BY date DESC
         "#,
@@ -21,17 +21,19 @@ pub(super) async fn find_all(pool: &SqlitePool) -> Result<Vec<Lesson>, sqlx::Err
 // Insère une leçon et la renvoie telle qu'enregistrée (id et created_at compris).
 pub(super) async fn insert(
     pool: &SqlitePool,
+    book_id: Option<i64>,
     title: &str,
     date: &str,
     notes: Option<&str>,
 ) -> Result<Lesson, sqlx::Error> {
     sqlx::query_as::<_, Lesson>(
         r#"
-        INSERT INTO lesson (title, date, notes)
-        VALUES (?, ?, ?)
-        RETURNING id, title, date, notes, created_at
+        INSERT INTO lesson (book_id, title, date, notes)
+        VALUES (?, ?, ?, ?)
+        RETURNING id, book_id, title, date, notes, created_at
         "#,
     )
+    .bind(book_id)
     .bind(title)
     .bind(date)
     .bind(notes)
@@ -43,6 +45,7 @@ pub(super) async fn insert(
 pub(super) async fn update(
     pool: &SqlitePool,
     id: i64,
+    book_id: Option<i64>,
     title: &str,
     date: &str,
     notes: Option<&str>,
@@ -50,11 +53,12 @@ pub(super) async fn update(
     sqlx::query_as::<_, Lesson>(
         r#"
         UPDATE lesson
-        SET title = ?, date = ?, notes = ?
+        SET book_id = ?, title = ?, date = ?, notes = ?
         WHERE id = ?
-        RETURNING id, title, date, notes, created_at
+        RETURNING id, book_id, title, date, notes, created_at
         "#,
     )
+    .bind(book_id)
     .bind(title)
     .bind(date)
     .bind(notes)

@@ -3,7 +3,8 @@
 use sqlx::SqlitePool;
 
 use super::model::{
-    Backup, CardRecord, FORMAT, ItemRecord, LessonRecord, ReviewLogRecord, SettingRecord, VERSION,
+    Backup, BookRecord, CardRecord, FORMAT, ItemRecord, LessonRecord, ReviewLogRecord,
+    SettingRecord, VERSION,
 };
 
 // Toutes les données, dans l'ordre des id.
@@ -15,8 +16,13 @@ pub(super) async fn snapshot(
         format: FORMAT.to_string(),
         version: VERSION,
         exported_at,
+        books: sqlx::query_as::<_, BookRecord>(
+            "SELECT id, title, created_at FROM book ORDER BY id",
+        )
+        .fetch_all(pool)
+        .await?,
         lessons: sqlx::query_as::<_, LessonRecord>(
-            "SELECT id, title, date, notes, created_at FROM lesson ORDER BY id",
+            "SELECT id, book_id, title, date, notes, created_at FROM lesson ORDER BY id",
         )
         .fetch_all(pool)
         .await?,
@@ -48,7 +54,7 @@ pub(super) async fn snapshot(
 
 // Remplace TOUTES les données par celles de la sauvegarde, en une transaction :
 // si une ligne viole une contrainte (CHECK, clé étrangère...), rien n'est modifié.
-// Les id sont conservés, pour que les liens leçon / élément / carte / historique restent justes.
+// Les id sont conservés, pour que les liens manuel / leçon / élément / carte / historique restent justes.
 pub(super) async fn replace_all(pool: &SqlitePool, backup: &Backup) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
 
@@ -59,16 +65,27 @@ pub(super) async fn replace_all(pool: &SqlitePool, backup: &Backup) -> Result<()
         "DELETE FROM card",
         "DELETE FROM item",
         "DELETE FROM lesson",
+        "DELETE FROM book",
         "DELETE FROM setting",
     ] {
         sqlx::query(delete).execute(&mut *tx).await?;
     }
 
+    for b in &backup.books {
+        sqlx::query("INSERT INTO book (id, title, created_at) VALUES (?, ?, ?)")
+            .bind(b.id)
+            .bind(&b.title)
+            .bind(&b.created_at)
+            .execute(&mut *tx)
+            .await?;
+    }
     for l in &backup.lessons {
         sqlx::query(
-            "INSERT INTO lesson (id, title, date, notes, created_at) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO lesson (id, book_id, title, date, notes, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(l.id)
+        .bind(l.book_id)
         .bind(&l.title)
         .bind(&l.date)
         .bind(&l.notes)

@@ -3,6 +3,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AssistantMessage,
+  Book,
+  BookInput,
   ChatTurn,
   ConversationStart,
   ConversationSummary,
@@ -16,6 +18,7 @@ import type {
   OllamaStatus,
   ReviewRating,
   ReviewResult,
+  ReviewScope,
   ReviewSession,
   Settings,
   ThemeInfo,
@@ -24,6 +27,11 @@ import type {
 } from "./types";
 
 export const api = {
+  listBooks: () => invoke<Book[]>("list_books"),
+  createBook: (input: BookInput) => invoke<Book>("create_book", { input }),
+  updateBook: (id: number, input: BookInput) => invoke<Book>("update_book", { id, input }),
+  deleteBook: (id: number) => invoke<null>("delete_book", { id }),
+
   listLessons: () => invoke<Lesson[]>("list_lessons"),
   createLesson: (input: LessonInput) => invoke<Lesson>("create_lesson", { input }),
   updateLesson: (id: number, input: LessonInput) =>
@@ -37,9 +45,9 @@ export const api = {
     invoke<Item>("set_item_active", { id, active }),
   deleteItem: (id: number) => invoke<null>("delete_item", { id }),
 
-  // lessonId absent => toutes les leçons ; extraNew : nouvelles cartes au-delà de la limite.
-  getReviewSession: (lessonId?: number, extraNew = 0) =>
-    invoke<ReviewSession>("get_review_session", { lessonId, extraNew }),
+  // scope vide => toutes les leçons ; extraNew : nouvelles cartes au-delà de la limite.
+  getReviewSession: (scope: ReviewScope, extraNew = 0) =>
+    invoke<ReviewSession>("get_review_session", { ...scope, extraNew }),
   reviewCard: (cardId: number, rating: ReviewRating) =>
     invoke<ReviewResult>("review_card", { cardId, rating }),
 

@@ -42,7 +42,8 @@ export default function BackupSection({ onImported }: Props) {
       const report = await api.importData();
       if (report !== null) {
         setMessage(
-          `Import terminé : ${report.lessons} leçon(s), ${report.items} élément(s), ` +
+          `Import terminé : ${report.books} manuel(s), ${report.lessons} leçon(s), ` +
+            `${report.items} élément(s), ` +
             `${report.cards} carte(s), ${report.review_logs} révision(s). ` +
             `Copie de tes anciennes données : ${report.safety_backup}`,
         );
@@ -59,7 +60,7 @@ export default function BackupSection({ onImported }: Props) {
     <div className="card space-y-3">
       <h3 className="font-medium">Sauvegarde</h3>
       <p className="text-sm text-stone-600">
-        L'export crée un fichier avec toutes tes données (leçons, éléments, progression des
+        L'export crée un fichier avec toutes tes données (manuels, leçons, éléments, progression des
         cartes, historique, réglages). Garde-le ailleurs que sur ce PC.
       </p>
       <div className="flex flex-wrap gap-2">

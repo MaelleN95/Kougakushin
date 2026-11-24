@@ -3,8 +3,11 @@
 
 import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../api";
+import { groupLessons } from "../lessonGroups";
+import LessonPicker from "./LessonPicker";
 import type {
   AssistantMessage,
+  Book,
   ChatTurn,
   ConversationStart,
   ConversationSummary,
@@ -34,6 +37,7 @@ function toHistory(entries: Entry[]): ChatTurn[] {
 
 export default function ConversationPage() {
   const [lessons, setLessons] = useState<Lesson[]>([]);
+  const [books, setBooks] = useState<Book[]>([]);
   const [themes, setThemes] = useState<ThemeInfo[]>([]);
   const [selectedLessons, setSelectedLessons] = useState<number[]>([]); // vide = toutes
   const [themeId, setThemeId] = useState("surprise");
@@ -49,6 +53,7 @@ export default function ConversationPage() {
 
   useEffect(() => {
     api.listLessons().then(setLessons).catch((e) => setError(errorMessage(e)));
+    api.listBooks().then(setBooks).catch((e) => setError(errorMessage(e)));
     api.listConversationThemes().then(setThemes).catch((e) => setError(errorMessage(e)));
   }, []);
 
@@ -61,12 +66,6 @@ export default function ConversationPage() {
   useEffect(() => {
     if (start !== null && summary === null && waiting === null) input.current?.focus();
   }, [start, summary, waiting]);
-
-  function toggleLesson(id: number) {
-    setSelectedLessons((current) =>
-      current.includes(id) ? current.filter((l) => l !== id) : [...current, id],
-    );
-  }
 
   function assistantEntry(message: AssistantMessage): Entry {
     return { role: "assistant", message, french: null, showFrench: false, showHint: false };
@@ -173,19 +172,11 @@ export default function ConversationPage() {
               ))}
             </div>
           </div>
-          <div className="space-y-1">
-            <p className="text-sm font-medium">Leçons (aucune cochée = toutes)</p>
-            {lessons.map((lesson) => (
-              <label key={lesson.id} className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={selectedLessons.includes(lesson.id)}
-                  onChange={() => toggleLesson(lesson.id)}
-                />
-                {lesson.title}
-              </label>
-            ))}
-          </div>
+          <LessonPicker
+            groups={groupLessons(lessons, books)}
+            selected={selectedLessons}
+            onChange={setSelectedLessons}
+          />
           <button className="btn-primary" disabled={waiting !== null} onClick={startConversation}>
             {waiting === "start" ? "L'IA prépare la situation..." : "Commencer"}
           </button>

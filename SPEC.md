@@ -140,7 +140,8 @@ Démarrage après quelques jours d'usage réel de la V1 (D25). Ordre de réalisa
 ### 5.1 Modèle de données
 
 ```sql
-lesson    (id, title, date, notes, created_at)
+book      (id, title UNIQUE, created_at)              -- manuel, ex. "Marugoto A1"
+lesson    (id, book_id NULL, title, date, notes, created_at)
 item      (id, lesson_id, kind ['vocab'|'grammar'], active,
            kana, romaji, kanji, meaning, word_type,       -- vocab
            title, explanation,                            -- grammar

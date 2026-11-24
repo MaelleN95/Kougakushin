@@ -1,6 +1,7 @@
 // Déclaration des modules : chaque `mod x;` correspond au fichier src/x.rs (comme un namespace PHP).
 mod ai;
 mod backup;
+mod books;
 mod cards;
 mod db;
 mod error;
@@ -13,6 +14,7 @@ use ai::{
     list_conversation_themes, reply_conversation, start_conversation, translate_message,
 };
 use backup::{export_data, import_data};
+use books::{create_book, delete_book, list_books, update_book};
 use cards::{get_review_session, review_card};
 use items::{create_item, delete_item, list_items, set_item_active, update_item};
 use lessons::{create_lesson, delete_lesson, list_lessons, update_lesson};
@@ -52,6 +54,10 @@ pub fn run() {
         // Les commandes Tauri sont des fonctions Rust exposées à l'interface JavaScript.
         .invoke_handler(tauri::generate_handler![
             analyser_mot,
+            list_books,
+            create_book,
+            update_book,
+            delete_book,
             list_lessons,
             create_lesson,
             update_lesson,

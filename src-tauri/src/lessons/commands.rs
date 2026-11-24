@@ -10,6 +10,15 @@ use crate::error::{AppError, is_foreign_key_violation};
 
 // Le `?` convertit les sqlx::Error en AppError grâce au #[from].
 
+// Une clé étrangère violée à l'écriture d'une leçon = book_id inexistant.
+fn book_not_found_or(error: sqlx::Error) -> AppError {
+    if is_foreign_key_violation(&error) {
+        AppError::NotFound("Manuel")
+    } else {
+        AppError::from(error)
+    }
+}
+
 #[tauri::command]
 pub(crate) async fn list_lessons(pool: State<'_, SqlitePool>) -> Result<Vec<Lesson>, AppError> {
     Ok(repository::find_all(pool.inner()).await?)
@@ -25,11 +34,13 @@ pub(crate) async fn create_lesson(
     // as_deref : Option<String> -> Option<&str>, sans copier le texte.
     let lesson = repository::insert(
         pool.inner(),
+        input.book_id,
         &input.title,
         &input.date,
         input.notes.as_deref(),
     )
-    .await?;
+    .await
+    .map_err(book_not_found_or)?;
 
     Ok(lesson)
 }
@@ -45,11 +56,13 @@ pub(crate) async fn update_lesson(
     repository::update(
         pool.inner(),
         id,
+        input.book_id,
         &input.title,
         &input.date,
         input.notes.as_deref(),
     )
-    .await? // échec technique
+    .await
+    .map_err(book_not_found_or)? // manuel absent ou échec technique
     .ok_or(AppError::NotFound("Leçon")) // None => leçon absente
 }
 
@@ -58,7 +71,7 @@ pub(crate) async fn delete_lesson(pool: State<'_, SqlitePool>, id: i64) -> Resul
     let deleted = repository::delete(pool.inner(), id)
         .await
         .map_err(|e| match e {
-            // ON DELETE RESTRICT de la table item.
+            // Clé étrangère de la table item : la leçon contient encore des éléments.
             e if is_foreign_key_violation(&e) => {
                 AppError::Conflict("Impossible de supprimer une leçon qui contient des éléments")
             }

@@ -49,6 +49,7 @@ async fn import_file(
         AppError::InvalidBackup("données incohérentes, rien n'a été modifié".into())
     })?;
     Ok(ImportReport {
+        books: backup.books.len(),
         lessons: backup.lessons.len(),
         items: backup.items.len(),
         cards: backup.cards.len(),
@@ -126,11 +127,12 @@ mod tests {
         pool
     }
 
-    // Une leçon, un mot (2 cartes), une révision, un réglage.
+    // Un manuel, une leçon, un mot (2 cartes), une révision, un réglage.
     async fn seeded_pool() -> SqlitePool {
         let pool = empty_pool().await;
         sqlx::raw_sql(
-            "INSERT INTO lesson (title, date) VALUES ('L1', '2026-11-18');
+            "INSERT INTO book (title) VALUES ('Marugoto A1');
+             INSERT INTO lesson (title, date, book_id) VALUES ('L1', '2026-11-18', 1);
              INSERT INTO item (lesson_id, kind, kana, kanji, meaning) VALUES (1, 'vocab', 'たべる', '食べる', 'manger');
              INSERT INTO card (item_id, direction) VALUES (1, 'fr_jp'), (1, 'jp_fr');
              UPDATE card SET state = 2, reps = 3, stability = 4.5 WHERE id = 1;
@@ -166,12 +168,13 @@ mod tests {
             let report = import_file(&target, &path, "x".into()).await.unwrap();
             assert_eq!(
                 (
+                    report.books,
                     report.lessons,
                     report.items,
                     report.cards,
                     report.review_logs
                 ),
-                (1, 1, 2, 1)
+                (1, 1, 1, 2, 1)
             );
 
             let before = repository::snapshot(&source, "t".into()).await.unwrap();
@@ -203,10 +206,10 @@ mod tests {
     fn fichier_etranger_ou_modifie_refuse() {
         assert!(Backup::from_json("{}").is_err());
         assert!(Backup::from_json("pas du json").is_err());
-        let wrong_format = r#"{"format":"autre","version":1,"exported_at":"","lessons":[],
+        let wrong_format = r#"{"format":"autre","version":2,"exported_at":"","books":[],"lessons":[],
             "items":[],"cards":[],"review_logs":[],"settings":[]}"#;
         assert!(Backup::from_json(wrong_format).is_err());
-        let extra_field = r#"{"format":"kougakushin","version":1,"exported_at":"","lessons":[],
+        let extra_field = r#"{"format":"kougakushin","version":2,"exported_at":"","books":[],"lessons":[],
             "items":[],"cards":[],"review_logs":[],"settings":[],"pirate":true}"#;
         assert!(Backup::from_json(extra_field).is_err());
     }

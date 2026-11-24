@@ -103,13 +103,14 @@ La conversation n'est pas sauvegardée (seul le bilan peut l'être, optionnel).
 
 ## 4. V2 (validée, après la V1)
 
-1. Conjugaisons : génération algorithmique des formes verbales (en Rust) + flashcards de grammaire.
-2. Fiches kanji dédiées (lectures on/kun, vocabulaire lié).
-3. Audio : lecture TTS locale, puis réponse orale (Whisper).
-4. Statistiques et suivi de régularité.
-5. Thème "Nuit japonaise" soigné (palette et typos de `docs/archive/`), furigana.
+Démarrage après quelques jours d'usage réel de la V1 (D25). Ordre de réalisation (D26) :
 
-Idée ouverte : sauvegarde automatique (ex. vers un dossier synchronisé).
+1. Thème "Nuit japonaise" soigné (palette et typos de `docs/archive/`), furigana.
+2. Conjugaisons : génération algorithmique des formes verbales (en Rust) + flashcards de grammaire.
+3. Statistiques et suivi de régularité.
+4. Fiches kanji dédiées (lectures on/kun, vocabulaire lié).
+5. Sauvegarde automatique vers un dossier choisi, par exemple synchronisé (D27).
+6. Peut-être : audio, lecture TTS locale, puis réponse orale (Whisper). À décider plus tard.
 
 **Abandonnés** (trop coûteux pour le gain en usage perso) : comptes/authentification, API REST locale, référentiels JLPT et évaluation initiale, Google Drive OAuth, file d'attente IA avec priorités, collections (remplacées par le filtre par leçon).
 
@@ -145,14 +146,20 @@ item      (id, lesson_id, kind ['vocab'|'grammar'], active,
            title, explanation,                            -- grammar
            example_jp, example_fr, created_at, updated_at)
 card      (id, item_id, direction ['fr_jp'|'jp_fr'|'kanji_read'],
-           next_review_at, stability, difficulty, reps, lapses, state, last_review)
-review_log(id, card_id, rating, reviewed_at)
+           next_review_at, stability, difficulty, elapsed_days, scheduled_days,
+           reps, lapses, state, last_review, created_at)
+review_log(id, card_id, rating, state, elapsed_days, scheduled_days, reviewed_at)
 setting   (key, value)
 ```
 
+Source de vérité : les migrations de `src-tauri/migrations/`.
+
 ### 5.2 Choix du modèle IA
 
-À valider par un petit test sur 10 phrases avant de figer : candidats ~7-9B qui tiennent dans 8 Go de VRAM et sont bons en japonais (famille Qwen, Gemma). Critères : respect de la contrainte de vocabulaire, qualité des corrections, temps de réponse < 10 s.
+Choix retenu après essais (réglable dans les Réglages) :
+
+- Modèle principal : `gemma4:e4b-it-q4_K_M` (génération, correction, conversation), sur la carte graphique. `qwen3.5:9b` et `gemma4:12b-it-qat` ont été écartés : moins bons en conversation, et trop lents.
+- Traducteur japonais vers français : `translategemma:4b`, sur le processeur, pour que les deux modèles restent chargés.
 
 ---
 
@@ -166,6 +173,6 @@ setting   (key, value)
 | 4 | Connexion Ollama + test des modèles | - |
 | 5 | Exercice de traduction | ✅ |
 | 6 | Conversation | ✅ V1 complète |
-| 7 | Export/import JSON, finitions | ✅ |
+| 7 | Export/import JSON, finitions | ✅ V1 terminée (2026-11-24) |
 
 Chaque étape doit être utilisable avant de passer à la suivante.

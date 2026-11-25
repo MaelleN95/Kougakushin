@@ -7,7 +7,9 @@
 use serde_json::json;
 
 use super::client::{ChatRequest, ChatTurn, Ollama};
+use super::knowledge_prompt::is_kanji;
 use crate::error::AppError;
+use crate::items::Knowledge;
 
 #[derive(serde::Deserialize)]
 struct Rewritten {
@@ -30,7 +32,7 @@ fn keeps_kana(original: &str, rewritten: &str) -> bool {
 
 // Phrase en écriture normale (kanji usuels, sans espaces) ; la phrase d'origine sans espaces
 // si la réécriture échoue ou change la phrase.
-async fn with_kanji(ollama: &Ollama, model: &str, japanese: &str) -> String {
+pub(super) async fn with_kanji(ollama: &Ollama, model: &str, japanese: &str) -> String {
     let fallback: String = japanese.chars().filter(|c| !c.is_whitespace()).collect();
     let result: Result<Rewritten, AppError> = ollama
         .chat_json(ChatRequest {
@@ -66,15 +68,75 @@ async fn with_kanji(ollama: &Ollama, model: &str, japanese: &str) -> String {
     }
 }
 
-// `model` réécrit en kanji, `translator` traduit.
+// Formes sous lesquelles un mot peut apparaître dans une phrase : tel quel (espaces retirés),
+// en kanji, ou par son radical s'il se conjugue (たべ de たべる, 食 de 食べる).
+// Radical en kana d'au moins 2 caractères : の (de のむ) se confondrait avec la particule.
+fn word_forms(kana: &str, kanji: Option<&str>) -> Vec<String> {
+    let kana: String = kana.chars().filter(|c| !c.is_whitespace()).collect();
+    let mut forms = vec![kana.clone()];
+    let conjugable = |w: &str| {
+        w.chars()
+            .last()
+            .is_some_and(|c| "うくぐすつぬぶむるい".contains(c))
+    };
+    if conjugable(&kana) {
+        let stem: String = kana.chars().take(kana.chars().count() - 1).collect();
+        if stem.chars().count() >= 2 {
+            forms.push(stem);
+        }
+    }
+    if let Some(kanji) = kanji.map(str::trim).filter(|k| !k.is_empty()) {
+        forms.push(kanji.to_string());
+        if conjugable(kanji) {
+            let stem: String = kanji.chars().take(kanji.chars().count() - 1).collect();
+            if stem.chars().any(is_kanji) {
+                forms.push(stem);
+            }
+        }
+    }
+    forms
+}
+
+// Glossaire pour le traducteur : mes mots présents dans la phrase, avec leur sens.
+// "ねこ : chat ; あさ : matin / matinée". Vide si aucun mot n'est reconnu.
+pub(super) fn glossary(japanese: &str, knowledge: &Knowledge) -> String {
+    let compact: String = japanese.chars().filter(|c| !c.is_whitespace()).collect();
+    knowledge
+        .words
+        .iter()
+        // です (être) : sans intérêt pour le traducteur, et présent dans presque toutes les phrases.
+        .filter(|w| !matches!(w.kana.trim(), "です" | "だ"))
+        .filter(|w| {
+            word_forms(&w.kana, w.kanji.as_deref())
+                .iter()
+                .any(|f| compact.contains(f.as_str()))
+        })
+        .map(|w| {
+            let meaning = w
+                .meaning
+                .split(';')
+                .map(str::trim)
+                .filter(|m| !m.is_empty())
+                .collect::<Vec<_>>()
+                .join(" / ");
+            format!("{} : {meaning}", w.kana.trim())
+        })
+        .collect::<Vec<_>>()
+        .join(" ; ")
+}
+
+// `model` réécrit en kanji, `translator` traduit avec le glossaire de mes mots.
 pub(super) async fn to_french(
     ollama: &Ollama,
     model: &str,
     translator: &str,
     japanese: &str,
+    knowledge: &Knowledge,
 ) -> Result<String, AppError> {
     let written = with_kanji(ollama, model, japanese).await;
-    ollama.translate_ja_to_fr(translator, &written).await
+    ollama
+        .translate_ja_to_fr(translator, &written, &glossary(japanese, knowledge))
+        .await
 }
 
 #[cfg(test)]
@@ -91,6 +153,34 @@ mod tests {
             "あした がっこう に いきます",
             "明日学校に行きます"
         ));
+    }
+
+    #[test]
+    fn glossaire_des_mots_de_la_phrase() {
+        let word = |kana: &str, kanji: Option<&str>, meaning: &str| crate::items::KnownWord {
+            kana: kana.into(),
+            kanji: kanji.map(String::from),
+            meaning: meaning.into(),
+        };
+        let knowledge = Knowledge {
+            words: vec![
+                word("ラ ブヤディス", None, "La Bouilladisse"),
+                word("あさ", None, "matin;matinée"),
+                word("たべる", Some("食べる"), "manger"),
+                word("のむ", None, "boire"),
+                word("です", None, "être"),
+                word("ねこ", None, "chat"),
+            ],
+            ..Knowledge::default()
+        };
+        // Mot en deux morceaux, sens multiples, verbe conjugué ; です et les absents écartés.
+        assert_eq!(
+            glossary("ラ ブヤディス の あさ に たべます です", &knowledge),
+            "ラ ブヤディス : La Bouilladisse ; あさ : matin / matinée ; たべる : manger"
+        );
+        // Kanji : radical 食べ reconnu ; の (particule) ne déclenche pas のむ.
+        assert_eq!(glossary("私の食べ物", &knowledge), "たべる : manger");
+        assert_eq!(glossary("こんにちは", &knowledge), "");
     }
 
     #[test]
@@ -116,6 +206,7 @@ mod tests {
                 &super::super::knowledge_prompt::test_model(),
                 "translategemma:4b",
                 "わたし は マレーシア の ちゅうごくご が いい です",
+                &Knowledge::default(),
             )
             .await
             .unwrap();

@@ -571,11 +571,14 @@ pub(crate) async fn translate_message(
         return Err(AppError::Validation("Rien à traduire."));
     }
     let settings = settings::load(pool.inner()).await?;
+    // Toute ma base : le glossaire du traducteur ne contient que les mots de la phrase.
+    let knowledge = items::find_knowledge(pool.inner(), &[]).await?;
     to_french(
         ollama.inner(),
         &settings.ollama_model,
         &settings.translation_model,
         text.trim(),
+        &knowledge,
     )
     .await
 }
@@ -795,7 +798,7 @@ mod tests {
             let theme = find_theme(Some("directions")).unwrap();
             let first = next_message(&ollama, model, theme, &k, &[]).await.unwrap();
             let fr = ollama
-                .translate_ja_to_fr("translategemma:4b", &first.japanese)
+                .translate_ja_to_fr("translategemma:4b", &first.japanese, "")
                 .await
                 .unwrap();
             println!(
@@ -810,7 +813,7 @@ mod tests {
                 .await
                 .unwrap();
             let fr = ollama
-                .translate_ja_to_fr("translategemma:4b", &second.japanese)
+                .translate_ja_to_fr("translategemma:4b", &second.japanese, "")
                 .await
                 .unwrap();
             println!(

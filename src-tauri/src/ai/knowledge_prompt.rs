@@ -52,6 +52,8 @@ pub(super) fn unknown_words(
     let mut known_kanji: HashSet<char> = HashSet::new();
     for word in &knowledge.words {
         known.insert(word.kana.trim());
+        // Mot saisi en plusieurs morceaux (ラ ブヤディス) : chaque morceau est connu.
+        known.extend(word.kana.split_whitespace());
         if let Some(kanji) = &word.kanji {
             known.insert(kanji.trim());
             known_kanji.extend(kanji.chars().filter(|&c| is_kanji(c)));
@@ -67,7 +69,16 @@ pub(super) fn unknown_words(
     }
     // Mots en katakana (emprunts : コーヒー, テーブル...) : ils ne se conjuguent pas, on peut donc
     // les comparer tels quels, même si l'IA ne les a pas déclarés. Possible grâce aux espaces (D10).
-    let known_katakana = |token: &str| known.contains(token);
+    // Partie katakana d'un mot connu mixte (アラビア de アラビアご, écrit aussi アラビア語) :
+    // connue aussi, sinon faux positif (mesuré le 2026-11-25).
+    let known_katakana = |token: &str| {
+        known.contains(token)
+            || known.iter().any(|w| {
+                w.strip_prefix(token)
+                    .and_then(|rest| rest.chars().next())
+                    .is_some_and(|c| !is_katakana(c))
+            })
+    };
     for token in japanese.split_whitespace() {
         let token = token.trim_matches(|c: char| !is_katakana(c));
         if !token.is_empty()
@@ -264,6 +275,19 @@ mod tests {
             &knowledge,
         );
         assert_eq!(unknown, ["テーブル"]);
+    }
+
+    #[test]
+    fn katakana_de_mots_connus_mixtes_ou_en_morceaux() {
+        let knowledge = Knowledge {
+            words: vec![word("アラビアご", None), word("ラ ブヤディス", None)],
+            ..Knowledge::default()
+        };
+        // Cas mesurés le 2026-11-25 : アラビア (de アラビアご, écrit アラビア語 par l'IA) et
+        // ブヤディス étaient signalés. Le kanji 語, lui, reste vérifié à part.
+        assert!(unknown_words("アラビアご と アラビア", &[], &knowledge).is_empty());
+        assert!(unknown_words("ラ ブヤディス です", &[], &knowledge).is_empty());
+        assert_eq!(unknown_words("アラビ です", &[], &knowledge), ["アラビ"]);
     }
 
     #[test]

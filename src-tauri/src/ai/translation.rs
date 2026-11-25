@@ -68,39 +68,116 @@ fn generation_system_prompt(knowledge: &Knowledge) -> String {
         "Tu es un professeur de japonais expérimenté, de langue maternelle japonaise, exigeant \
          sur le naturel. Ton élève est une francophone qui apprend en cours. \
          Tu crées UNE phrase japonaise (sa traduction française est faite à part).\n\
-         Qualité attendue :\n\
-         - La phrase doit sonner naturelle pour un Japonais, comme dans une vraie conversation. \
-         Omets le sujet quand il est évident, comme le font les Japonais : n'écris わたし は que \
-         si la phrase en a vraiment besoin (contraste, présentation).\n\
-         - Exploite au mieux ses connaissances : combine plusieurs mots et points de grammaire, \
-         4 à 10 mots, pas seulement 'A は B を V ます'.\n{}",
+         Qualité attendue, par ordre d'importance :\n\
+         - La phrase a un sens clair et dit quelque chose de vrai ou de plausible dans la vie \
+         réelle, qu'un Japonais pourrait vraiment dire. Interdit : les associations absurdes \
+         (ex. にほん は アラビアご の くに です : le Japon n'est pas le pays de l'arabe).\n\
+         - Elle sonne naturelle pour un Japonais. Omets le sujet quand il est évident : \
+         n'écris わたし は que si la phrase en a vraiment besoin (contraste, présentation).\n\
+         - Elle est grammaticalement correcte, avec seulement les mots et la grammaire autorisés. \
+         Une phrase simple et juste vaut mieux qu'une phrase longue, fausse ou absurde : \
+         3 à 8 mots, sans forcer des combinaisons que ses connaissances ne permettent pas.\n\
+         - Écris chaque mot de la liste exactement comme elle (katakana compris : ホテル, \
+         jamais ほてる ; mot composé d'un seul bloc : にほんご, jamais にほん ご).\n\
+         Réponds :\n\
+         - idea : D'ABORD, en français, l'idée de ta phrase : une chose vraie ou plausible \
+         qu'on dit dans la vie (ex. 'Mon pays, c'est la France.', 'C'est le chat de Maëlle ?').\n\
+         - japanese : cette idée en japonais.\n{}",
         knowledge_rules(knowledge)
     )
 }
 
+// Ce qu'exige une forme de phrase pour être possible avec mes connaissances.
+#[derive(Clone, Copy, PartialEq)]
+enum Needs {
+    Nothing,
+    Verb,     // au moins un verbe dans mon vocabulaire
+    Negation, // un point de grammaire sur la négation
+}
+
 // Forme de phrase imposée à chaque demande : sans elle, le modèle produit toujours
-// la même affirmation simple.
-const SENTENCE_STYLES: [&str; 6] = [
-    "une question (avec か)",
-    "une phrase négative",
-    "une phrase qui précise un moment (aujourd'hui, demain...) si le vocabulaire le permet",
-    "une phrase qui précise un lieu ou une destination",
-    "une réponse naturelle à une question qu'on t'aurait posée",
-    "une phrase qui relie deux idées",
+// la même affirmation simple. Mesure du 2026-11-25 : imposer une forme impossible
+// (lieu, moment, négation sans verbe ni négation connus) fait inventer des mots
+// (みます, べんきょう, ない) ou des phrases absurdes. On ne tire donc que des formes possibles.
+const SENTENCE_STYLES: [(&str, Needs); 7] = [
+    ("une question (avec か)", Needs::Nothing),
+    (
+        "une réponse naturelle à une question qu'on t'aurait posée",
+        Needs::Nothing,
+    ),
+    (
+        "une phrase qui présente ou décrit une personne, un objet ou un lieu",
+        Needs::Nothing,
+    ),
+    ("une phrase négative", Needs::Negation),
+    (
+        "une phrase qui précise un moment (matin, soir...)",
+        Needs::Verb,
+    ),
+    (
+        "une phrase qui précise un lieu ou une destination",
+        Needs::Verb,
+    ),
+    ("une phrase qui relie deux idées", Needs::Verb),
 ];
 
-fn pick_style() -> &'static str {
-    SENTENCE_STYLES[pick_index(SENTENCE_STYLES.len())]
+// Vrai si un mot ressemble à un verbe : kana finissant par un son en -u et sens à
+// l'infinitif (manger, boire, lire...). Heuristique : le type du mot n'est pas transmis à l'IA.
+fn looks_like_verb(kana: &str, meaning: &str) -> bool {
+    let kana = kana.trim();
+    if matches!(kana, "です" | "だ") {
+        return false;
+    }
+    let ends_in_u = kana
+        .chars()
+        .last()
+        .is_some_and(|c| "うくぐすつぬぶむる".contains(c));
+    let first_meaning = meaning
+        .split([';', ','])
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
+    ends_in_u
+        && ["er", "ir", "re", "oir"]
+            .iter()
+            .any(|ending| first_meaning.ends_with(ending))
+}
+
+fn can_use(needs: Needs, knowledge: &Knowledge) -> bool {
+    match needs {
+        Needs::Nothing => true,
+        Needs::Verb => knowledge
+            .words
+            .iter()
+            .any(|w| looks_like_verb(&w.kana, &w.meaning)),
+        Needs::Negation => knowledge.grammar.iter().any(|g| {
+            let text = format!("{} {}", g.title, g.explanation).to_lowercase();
+            ["ません", "ない", "じゃ", "négati"]
+                .iter()
+                .any(|m| text.contains(m))
+        }),
+    }
+}
+
+fn pick_style(knowledge: &Knowledge) -> &'static str {
+    let possible: Vec<&str> = SENTENCE_STYLES
+        .iter()
+        .filter(|(_, needs)| can_use(*needs, knowledge))
+        .map(|(style, _)| *style)
+        .collect();
+    possible[pick_index(possible.len())]
 }
 
 fn generation_user_prompt(
     knowledge: &Knowledge,
     previous: &[String],
     rejected: &[String],
+    flaw: Option<(&str, Flaw)>,
 ) -> String {
     let mut prompt = format!(
         "Crée une nouvelle phrase : {}, si sa grammaire est connue (sinon, une autre forme).",
-        pick_style()
+        pick_style(knowledge)
     );
     if let Some(reminder) = kanji_reminder(knowledge) {
         prompt.push(' ');
@@ -108,11 +185,14 @@ fn generation_user_prompt(
     }
     if !knowledge.focus.is_empty() {
         let focus: Vec<&str> = knowledge.focus.iter().map(|w| w.kana.as_str()).collect();
-        prompt.push_str(&format!(" Utilise de préférence : {}.", focus.join(", ")));
+        prompt.push_str(&format!(
+            " Utilise de préférence, si la phrase garde un sens naturel : {}.",
+            focus.join(", ")
+        ));
     }
     if !previous.is_empty() {
         prompt.push_str(&format!(
-            " Ne reprends pas ces phrases déjà proposées : {}.",
+            " Ne reprends pas ces phrases déjà proposées, et change de sujet et de mots : {}.",
             previous.join(" / ")
         ));
     }
@@ -122,17 +202,38 @@ fn generation_user_prompt(
             rejected.join(", ")
         ));
     }
+    match flaw {
+        Some((sentence, Flaw::Absurd)) => prompt.push_str(&format!(
+            " Ta phrase précédente ({sentence}) était absurde ou fautive pour un Japonais : \
+             choisis une idée simple et vraie."
+        )),
+        Some((sentence, Flaw::Repeated)) => prompt.push_str(&format!(
+            " Ta phrase précédente ({sentence}) avait déjà été proposée : invente une phrase \
+             différente."
+        )),
+        None => {}
+    }
     prompt
+}
+
+// Défaut d'une phrase générée, repéré après coup (en plus des mots inconnus).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Flaw {
+    Repeated, // identique à une phrase déjà proposée (moins grave : la phrase reste juste)
+    Absurd,   // jugée absurde ou fautive par le contrôle de sens
 }
 
 fn generation_schema() -> serde_json::Value {
     json!({
         "type": "object",
+        // `idea` en premier : le modèle choisit d'abord une idée sensée, puis l'écrit en
+        // japonais (sinon il aligne des mots permis sans souci du sens). Non lu par le code.
         "properties": {
+            "idea": { "type": "string" },
             "japanese": { "type": "string" },
             "words": { "type": "array", "items": { "type": "string" } }
         },
-        "required": ["japanese", "words"]
+        "required": ["idea", "japanese", "words"]
     })
 }
 
@@ -242,6 +343,7 @@ async fn generate_with(
         models.model,
         models.translator,
         &japanese_sentence.0,
+        knowledge,
     )
     .await?;
     Ok(TranslationExercise {
@@ -252,7 +354,55 @@ async fn generate_with(
     })
 }
 
-// Phrase japonaise + ses mots inconnus : la première sans intrus, sinon la meilleure des essais.
+// Consigne du contrôle de sens. Exemples tirés des phrases mesurées le 2026-11-25 : sans
+// eux, le modèle jugeait absurdes des phrases courtes mais justes (とうきょう の ホテル です).
+const SENSE_CHECK_PROMPT: &str = "Tu es un professeur de japonais natif. On te donne une phrase \
+    japonaise d'exercice pour débutante, au vocabulaire très limité.\n\
+    Réponds :\n\
+    - french : ce que dit la phrase, en français naturel.\n\
+    - verdict : \"ok\" si un Japonais pourrait dire cette phrase dans une situation réelle (les \
+    phrases courtes, sans sujet, ou qui répondent à une question implicite sont \"ok\" : ex. \
+    わたし の くに は フランス です, とうきょう の ホテル です, ジョナタン の ねこ です) ; \
+    \"absurd\" si elle associe des choses sans rapport ou affirme une chose évidemment fausse \
+    (ex. マエル は フランスご です : une personne n'\"est\" pas une langue ; \
+    にほん は ドイツご です か) ; \"incorrect\" si elle contient une faute de grammaire ou \
+    d'écriture (ex. です です, とうきょう に です, ほてる au lieu de ホテル).";
+
+#[derive(serde::Deserialize)]
+struct SenseCheck {
+    verdict: String,
+}
+
+// Contrôle de sens par le modèle principal (mesure du 2026-11-25 sur 20 phrases réelles :
+// 10 justes sur 10 acceptées, 6 absurdes ou fautives sur 10 écartées ; environ 0,4 s).
+// Imparfait : il filtre, sans garantir.
+// Réponse illisible : la phrase est acceptée (le contrôle ne doit pas bloquer l'exercice).
+async fn is_sensible(ollama: &Ollama, model: &str, japanese: &str) -> Result<bool, AppError> {
+    let result: Result<SenseCheck, AppError> = ollama
+        .chat_json(ChatRequest {
+            model,
+            system: SENSE_CHECK_PROMPT,
+            turns: &[ChatTurn::user(japanese)],
+            schema: json!({
+                "type": "object",
+                "properties": {
+                    "french": { "type": "string" },
+                    "verdict": { "type": "string", "enum": ["ok", "absurd", "incorrect"] }
+                },
+                "required": ["french", "verdict"]
+            }),
+            temperature: 0.0,
+        })
+        .await;
+    match result {
+        Ok(check) => Ok(check.verdict == "ok"),
+        Err(AppError::InvalidAiResponse) => Ok(true),
+        Err(e) => Err(e),
+    }
+}
+
+// Phrase japonaise + ses mots inconnus : la première sensée et sans intrus, sinon la
+// meilleure des essais (sensée d'abord, puis le moins d'intrus).
 async fn generate_japanese(
     ollama: &Ollama,
     model: &str,
@@ -261,10 +411,17 @@ async fn generate_japanese(
 ) -> Result<(String, Vec<String>), AppError> {
     let system = generation_system_prompt(knowledge);
     let mut rejected: Vec<String> = Vec::new();
-    let mut best: Option<(String, Vec<String>)> = None;
+    let mut flaw: Option<(String, Flaw)> = None;
+    // (phrase, mots inconnus, défaut)
+    let mut best: Option<(String, Vec<String>, Option<Flaw>)> = None;
 
     for _ in 0..MAX_ATTEMPTS {
-        let user = generation_user_prompt(knowledge, previous, &rejected);
+        let user = generation_user_prompt(
+            knowledge,
+            previous,
+            &rejected,
+            flaw.as_ref().map(|(s, f)| (s.as_str(), *f)),
+        );
         let result: Result<GeneratedSentence, AppError> = ollama
             .chat_json(ChatRequest {
                 model,
@@ -281,17 +438,35 @@ async fn generate_japanese(
         };
         let unknown = unknown_words(&sentence.japanese, &sentence.words, knowledge);
         let japanese = sentence.japanese.trim().to_string();
-        if unknown.is_empty() {
+        // Répétition exacte (espaces, ponctuation et kanji / kana mis à part) : la consigne
+        // "ne reprends pas" ne suffit pas (mesuré). Une phrase déjà acceptée n'est pas revérifiée.
+        let normalized = normalize_japanese(&japanese, knowledge);
+        let found = if previous
+            .iter()
+            .any(|p| normalize_japanese(p, knowledge) == normalized)
+        {
+            Some(Flaw::Repeated)
+        } else if !is_sensible(ollama, model, &japanese).await? {
+            Some(Flaw::Absurd)
+        } else {
+            None
+        };
+        if unknown.is_empty() && found.is_none() {
             return Ok((japanese, unknown));
         }
-        log::info!("Phrase rejetée (mots inconnus : {unknown:?}) : {japanese}");
-        let is_better = best.as_ref().is_none_or(|b| unknown.len() < b.1.len());
+        log::info!("Phrase rejetée (mots inconnus : {unknown:?}, défaut : {found:?}) : {japanese}");
+        // Ordre de préférence : sans défaut < répétée < absurde, puis le moins d'intrus.
+        let is_better = best
+            .as_ref()
+            .is_none_or(|b| (found, unknown.len()) < (b.2, b.1.len()));
+        flaw = found.map(|f| (japanese.clone(), f));
         if is_better {
-            best = Some((japanese, unknown.clone()));
+            best = Some((japanese, unknown.clone(), found));
         }
         rejected = unknown;
     }
-    best.ok_or(AppError::InvalidAiResponse)
+    best.map(|(japanese, unknown, _)| (japanese, unknown))
+        .ok_or(AppError::InvalidAiResponse)
 }
 
 // Réponse brute de l'IA : `words` (mots de sa correction) sert seulement au contrôle.
@@ -510,6 +685,37 @@ mod tests {
     }
 
     #[test]
+    fn formes_de_phrase_selon_les_connaissances() {
+        // Que des noms : ni lieu, ni moment, ni négation (ils faisaient inventer des mots).
+        let nouns = Knowledge {
+            words: vec![word("ねこ", None, "chat"), word("です", None, "être")],
+            ..Knowledge::default()
+        };
+        assert!(!can_use(Needs::Verb, &nouns));
+        assert!(!can_use(Needs::Negation, &nouns));
+        assert!(can_use(Needs::Verb, &knowledge())); // たべる : manger
+        assert!(looks_like_verb("のむ", "boire; avaler"));
+        assert!(!looks_like_verb("とうきょう", "Tokyo"));
+        assert!(!looks_like_verb("いす", "chaise"));
+    }
+
+    #[test]
+    fn consigne_de_generation_et_retour_sur_un_defaut() {
+        assert!(generation_system_prompt(&knowledge()).contains("idea : D'ABORD"));
+        let user = generation_user_prompt(
+            &knowledge(),
+            &[],
+            &[],
+            Some(("にほん は ドイツご です", Flaw::Absurd)),
+        );
+        assert!(user.contains("(にほん は ドイツご です) était absurde"));
+        let user = generation_user_prompt(&knowledge(), &[], &[], Some(("x", Flaw::Repeated)));
+        assert!(user.contains("avait déjà été proposée"));
+        // Ordre de préférence des essais : sans défaut, puis répétée, puis absurde.
+        assert!(None < Some(Flaw::Repeated) && Some(Flaw::Repeated) < Some(Flaw::Absurd));
+    }
+
+    #[test]
     fn troncature_par_caracteres_et_non_par_octets() {
         assert_eq!(truncate("たべる", 2), "たべ...");
         assert_eq!(truncate("たべる", 3), "たべる");
@@ -615,6 +821,60 @@ mod tests {
                     .await
                     .unwrap();
                 println!("CORRECTION {answer} => {c:?}");
+            }
+        });
+    }
+
+    // Diagnostic sur une COPIE de la vraie base (ouverte en lecture seule) :
+    // KOUGAKUSHIN_DB=chemin/copie.db KOUGAKUSHIN_N=10 cargo test -- --ignored essai_reel_base --nocapture
+    #[test]
+    #[ignore]
+    fn essai_reel_base() {
+        tauri::async_runtime::block_on(async {
+            let path = std::env::var("KOUGAKUSHIN_DB").unwrap();
+            let count: usize = std::env::var("KOUGAKUSHIN_N")
+                .ok()
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(10);
+            let pool = sqlx::sqlite::SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect(&format!("sqlite://{path}?mode=ro"))
+                .await
+                .unwrap();
+            let knowledge = items::find_knowledge(&pool, &[]).await.unwrap();
+            println!(
+                "{} mots, {} points de grammaire",
+                knowledge.words.len(),
+                knowledge.grammar.len()
+            );
+            if std::env::var("KOUGAKUSHIN_SHOW").is_ok() {
+                println!("{}", knowledge_rules(&knowledge));
+            }
+            let ollama = Ollama::new().unwrap();
+            let model = &super::super::knowledge_prompt::test_model();
+            let mut previous: Vec<String> = Vec::new();
+            for i in 0..count {
+                // Relue à chaque phrase, comme l'application : les mots prioritaires changent.
+                let knowledge = items::find_knowledge(&pool, &[]).await.unwrap();
+                let (japanese, unknown) = generate_japanese(&ollama, model, &knowledge, &previous)
+                    .await
+                    .unwrap();
+                let written = super::super::to_french::with_kanji(&ollama, model, &japanese).await;
+                let french = ollama
+                    .translate_ja_to_fr(
+                        "translategemma:4b",
+                        &written,
+                        &super::super::to_french::glossary(&japanese, &knowledge),
+                    )
+                    .await
+                    .unwrap();
+                println!(
+                    "#{i} JP  {japanese}\n    KAN {written}\n    FR  {french}\n    INC {unknown:?}"
+                );
+                previous.push(japanese);
+                if previous.len() > MAX_PREVIOUS {
+                    previous.remove(0);
+                }
             }
         });
     }

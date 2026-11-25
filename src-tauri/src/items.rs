@@ -6,7 +6,10 @@ mod model;
 mod repository;
 
 // Seules les commandes sortent du module, pour `generate_handler!` dans lib.rs.
-pub(crate) use commands::{create_item, delete_item, list_items, set_item_active, update_item};
+pub(crate) use commands::{
+    create_item, delete_item, delete_items, list_items, move_items, set_item_active,
+    set_items_active, update_item,
+};
 
 // Lu par `cards` pour savoir quelles cartes générer.
 pub(crate) use model::ItemContent;

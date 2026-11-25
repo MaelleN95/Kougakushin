@@ -44,6 +44,12 @@ export const api = {
   setItemActive: (id: number, active: boolean) =>
     invoke<Item>("set_item_active", { id, active }),
   deleteItem: (id: number) => invoke<null>("delete_item", { id }),
+  // Actions groupées : renvoient le nombre d'éléments concernés.
+  setItemsActive: (ids: number[], active: boolean) =>
+    invoke<number>("set_items_active", { ids, active }),
+  moveItems: (ids: number[], lessonId: number) =>
+    invoke<number>("move_items", { ids, lessonId }),
+  deleteItems: (ids: number[]) => invoke<number>("delete_items", { ids }),
 
   // scope vide => toutes les leçons ; extraNew : nouvelles cartes au-delà de la limite.
   getReviewSession: (scope: ReviewScope, extraNew = 0) =>

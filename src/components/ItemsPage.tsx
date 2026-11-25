@@ -6,6 +6,7 @@ import { groupLessons } from "../lessonGroups";
 import type { Book, Item, ItemFilter, ItemKind, Lesson } from "../types";
 import ItemForm, { WORD_TYPE_LABELS } from "./ItemForm";
 import LessonOptions from "./LessonOptions";
+import SelectionBar from "./SelectionBar";
 
 export default function ItemsPage() {
   const [lessons, setLessons] = useState<Lesson[]>([]);
@@ -16,10 +17,16 @@ export default function ItemsPage() {
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
   const [showRomaji, setShowRomaji] = useState(true); // réglage
   const [error, setError] = useState<string | null>(null);
+  // Éléments cochés ; limités aux éléments affichés, pour ne jamais agir sur un élément caché.
+  const [selected, setSelected] = useState<number[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkMessage, setBulkMessage] = useState<string | null>(null);
 
   async function reloadItems() {
     try {
-      setItems(await api.listItems(filter));
+      const list = await api.listItems(filter);
+      setItems(list);
+      setSelected((current) => current.filter((id) => list.some((item) => item.id === id)));
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -50,6 +57,29 @@ export default function ItemsPage() {
       await reloadItems();
     } catch (e) {
       setError(errorMessage(e));
+    }
+  }
+
+  function toggleSelected(id: number) {
+    setSelected((current) =>
+      current.includes(id) ? current.filter((s) => s !== id) : [...current, id],
+    );
+  }
+
+  // Lance une action groupée, affiche le nombre d'éléments traités, puis recharge la liste.
+  async function runBulk(action: () => Promise<number>, done: string) {
+    setBulkBusy(true);
+    setBulkMessage(null);
+    try {
+      const count = await action();
+      if (editing !== null && selected.includes(editing.id)) setEditing(null);
+      setBulkMessage(`${count} élément(s) ${done}.`);
+      setError(null);
+      await reloadItems();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBulkBusy(false);
     }
   }
 
@@ -141,6 +171,25 @@ export default function ItemsPage() {
         </select>
       </div>
 
+      {items.length > 0 && (
+        <SelectionBar
+          count={selected.length}
+          visibleCount={items.length}
+          lessonGroups={lessonGroups}
+          busy={bulkBusy}
+          onSelectAll={() => setSelected(items.map((item) => item.id))}
+          onClear={() => setSelected([])}
+          onSetActive={(active) =>
+            runBulk(
+              () => api.setItemsActive(selected, active),
+              active ? "activé(s)" : "désactivé(s)",
+            )
+          }
+          onMove={(lessonId) => runBulk(() => api.moveItems(selected, lessonId), "déplacé(s)")}
+          onDelete={() => runBulk(() => api.deleteItems(selected), "supprimé(s)")}
+        />
+      )}
+      {bulkMessage && <p className="text-sm text-stone-600">{bulkMessage}</p>}
       {error && <p className="error">{error}</p>}
 
       {items.length === 0 ? (
@@ -150,9 +199,16 @@ export default function ItemsPage() {
           {items.map((item) => (
             <li
               key={item.id}
-              className={`card flex items-start justify-between gap-4 ${item.active ? "" : "opacity-50"}`}
+              className={`card flex items-start gap-3 ${item.active ? "" : "opacity-50"}`}
             >
-              <div className="min-w-0">
+              <input
+                type="checkbox"
+                className="mt-1.5 shrink-0"
+                aria-label="Sélectionner"
+                checked={selected.includes(item.id)}
+                onChange={() => toggleSelected(item.id)}
+              />
+              <div className="min-w-0 flex-1">
                 {/* Narrowing : dans chaque branche, TS connaît les champs disponibles. */}
                 {item.content.kind === "vocab" ? (
                   <>

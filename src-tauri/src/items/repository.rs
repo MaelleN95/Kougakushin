@@ -235,6 +235,59 @@ pub(super) async fn delete(pool: &SqlitePool, id: i64) -> Result<bool, sqlx::Err
     Ok(result.rows_affected() > 0)
 }
 
+// --- Actions groupées (sélection de plusieurs éléments) ---
+// Une seule requête par action : tout ou rien, sans transaction explicite.
+// Les ids passent en un tableau JSON, déplié par json_each (pas de SQL assemblé à la main).
+
+// [1,2,3] : des entiers seulement, donc aucune injection possible.
+fn ids_json(ids: &[i64]) -> String {
+    let list: Vec<String> = ids.iter().map(i64::to_string).collect();
+    format!("[{}]", list.join(","))
+}
+
+// Nombre d'éléments modifiés (les ids inexistants sont ignorés).
+pub(super) async fn set_active_many(
+    pool: &SqlitePool,
+    ids: &[i64],
+    active: bool,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        "UPDATE item SET active = ?1, updated_at = datetime('now')
+         WHERE id IN (SELECT value FROM json_each(?2))",
+    )
+    .bind(active)
+    .bind(ids_json(ids))
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+// Change la leçon ; les cartes et leur progression ne bougent pas (elles suivent l'élément).
+pub(super) async fn move_many(
+    pool: &SqlitePool,
+    ids: &[i64],
+    lesson_id: i64,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        "UPDATE item SET lesson_id = ?1, updated_at = datetime('now')
+         WHERE id IN (SELECT value FROM json_each(?2))",
+    )
+    .bind(lesson_id)
+    .bind(ids_json(ids))
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+// Supprime les éléments, leurs cartes et leur historique (CASCADE).
+pub(super) async fn delete_many(pool: &SqlitePool, ids: &[i64]) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query("DELETE FROM item WHERE id IN (SELECT value FROM json_each(?1))")
+        .bind(ids_json(ids))
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected())
+}
+
 #[cfg(test)]
 mod tests {
     use sqlx::SqlitePool;
@@ -486,6 +539,40 @@ mod tests {
                     .await
                     .unwrap()
             );
+        });
+    }
+
+    #[test]
+    fn actions_groupees_activer_deplacer_supprimer() {
+        tauri::async_runtime::block_on(async {
+            let pool = seeded_pool().await;
+            let inactive = || ItemFilter {
+                active: Some(false),
+                ..ItemFilter::default()
+            };
+            let in_lesson_2 = || ItemFilter {
+                lesson_id: Some(2),
+                ..ItemFilter::default()
+            };
+
+            // L'id 999 n'existe pas : ignoré, seuls 2 éléments sont comptés.
+            assert_eq!(
+                super::set_active_many(&pool, &[1, 2, 999], false)
+                    .await
+                    .unwrap(),
+                2
+            );
+            assert_eq!(ids(&pool, inactive()).await, vec![2, 1]);
+
+            assert_eq!(super::move_many(&pool, &[1, 2], 2).await.unwrap(), 2);
+            assert_eq!(ids(&pool, in_lesson_2()).await, vec![3, 2, 1]);
+            // Leçon inconnue : rien ne bouge.
+            let error = super::move_many(&pool, &[1], 999).await.unwrap_err();
+            assert!(is_foreign_key_violation(&error));
+            assert_eq!(ids(&pool, in_lesson_2()).await, vec![3, 2, 1]);
+
+            assert_eq!(super::delete_many(&pool, &[1, 3]).await.unwrap(), 2);
+            assert_eq!(ids(&pool, ItemFilter::default()).await, vec![2]);
         });
     }
 }

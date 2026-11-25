@@ -95,6 +95,47 @@ pub(crate) async fn set_item_active(
         .into_item()
 }
 
+// --- Actions groupées : renvoient le nombre d'éléments concernés ---
+
+fn require_selection(ids: &[i64]) -> Result<(), AppError> {
+    if ids.is_empty() {
+        return Err(AppError::Validation("Aucun élément sélectionné"));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn set_items_active(
+    pool: State<'_, SqlitePool>,
+    ids: Vec<i64>,
+    active: bool,
+) -> Result<u64, AppError> {
+    require_selection(&ids)?;
+    Ok(repository::set_active_many(pool.inner(), &ids, active).await?)
+}
+
+#[tauri::command]
+pub(crate) async fn move_items(
+    pool: State<'_, SqlitePool>,
+    ids: Vec<i64>,
+    lesson_id: i64,
+) -> Result<u64, AppError> {
+    require_selection(&ids)?;
+    repository::move_many(pool.inner(), &ids, lesson_id)
+        .await
+        .map_err(lesson_not_found_or)
+}
+
+// La confirmation est demandée par l'écran avant l'appel.
+#[tauri::command]
+pub(crate) async fn delete_items(
+    pool: State<'_, SqlitePool>,
+    ids: Vec<i64>,
+) -> Result<u64, AppError> {
+    require_selection(&ids)?;
+    Ok(repository::delete_many(pool.inner(), &ids).await?)
+}
+
 #[tauri::command]
 pub(crate) async fn delete_item(pool: State<'_, SqlitePool>, id: i64) -> Result<(), AppError> {
     let deleted = repository::delete(pool.inner(), id).await?;

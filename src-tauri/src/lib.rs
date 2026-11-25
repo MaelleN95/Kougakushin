@@ -16,7 +16,10 @@ use ai::{
 use backup::{export_data, import_data};
 use books::{create_book, delete_book, list_books, update_book};
 use cards::{get_review_session, review_card};
-use items::{create_item, delete_item, list_items, set_item_active, update_item};
+use items::{
+    create_item, delete_item, delete_items, list_items, move_items, set_item_active,
+    set_items_active, update_item,
+};
 use lessons::{create_lesson, delete_lesson, list_lessons, update_lesson};
 use settings::{get_settings, update_settings};
 use tauri::Manager;
@@ -67,6 +70,9 @@ pub fn run() {
             update_item,
             set_item_active,
             delete_item,
+            set_items_active,
+            move_items,
+            delete_items,
             get_review_session,
             review_card,
             get_settings,

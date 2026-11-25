@@ -287,6 +287,15 @@ function RomajiRules() {
       "KO-HI- = コーヒー, SE-TA- = セーター",
     ],
     [
+      "Sons étrangers",
+      "DHI = ディ, THI = ティ, DHU = デュ, DWU = ドゥ, FA FI FE FO = ファ フィ フェ フォ, " +
+        "VA = ヴァ, WI = ウィ, WE = ウェ, JE = ジェ, CHE = チェ, SHE = シェ",
+    ],
+    [
+      "Petite voyelle seule : x ou l devant",
+      "DEXI = DELI = ディ, XA = ァ, XYA = ャ (DI seul donne ヂ, TI donne チ)",
+    ],
+    [
       "Pas d'accents",
       "tōkyō n'est pas converti : écris toukyou",
     ],

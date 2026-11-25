@@ -16,6 +16,7 @@ import type {
   Lesson,
   LessonInput,
   OllamaStatus,
+  ParticleUsage,
   ReviewRating,
   ReviewResult,
   ReviewScope,
@@ -91,6 +92,13 @@ export const api = {
   checkMyMessage: (text: string) => invoke<string[]>("check_my_message", { text }),
   // Traduction japonais => français par le traducteur dédié.
   translateMessage: (text: string) => invoke<string>("translate_message", { text }),
+
+  listParticleUsages: () => invoke<ParticleUsage[]>("list_particle_usages"),
+  setParticleUsageActive: (id: number, active: boolean) =>
+    invoke<ParticleUsage>("set_particle_usage_active", { id, active }),
+  // Tous les emplois d'une particule ; renvoie le nombre d'emplois concernés.
+  setParticleActive: (particle: string, active: boolean) =>
+    invoke<number>("set_particle_active", { particle, active }),
 
   // null : fenêtre fermée sans choisir de fichier.
   exportData: () => invoke<string | null>("export_data"),

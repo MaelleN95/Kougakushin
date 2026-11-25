@@ -4,18 +4,27 @@ import { useState } from "react";
 import ConversationPage from "./components/ConversationPage";
 import ItemsPage from "./components/ItemsPage";
 import LessonsPage from "./components/LessonsPage";
+import ParticlesPage from "./components/ParticlesPage";
 import ReviewPage from "./components/ReviewPage";
 import SettingsPage from "./components/SettingsPage";
 import TranslationPage from "./components/TranslationPage";
 import "./App.css";
 
-type Page = "review" | "translation" | "conversation" | "items" | "lessons" | "settings";
+type Page =
+  | "review"
+  | "translation"
+  | "conversation"
+  | "items"
+  | "particles"
+  | "lessons"
+  | "settings";
 
 const PAGES: { id: Page; label: string }[] = [
   { id: "review", label: "Réviser" },
   { id: "translation", label: "Traduction" },
   { id: "conversation", label: "Conversation" },
   { id: "items", label: "Éléments" },
+  { id: "particles", label: "Particules" },
   { id: "lessons", label: "Leçons" },
   { id: "settings", label: "Réglages" },
 ];
@@ -47,6 +56,7 @@ export default function App() {
         {page === "translation" && <TranslationPage />}
         {page === "conversation" && <ConversationPage />}
         {page === "items" && <ItemsPage />}
+        {page === "particles" && <ParticlesPage />}
         {page === "lessons" && <LessonsPage />}
         {page === "settings" && <SettingsPage />}
       </main>

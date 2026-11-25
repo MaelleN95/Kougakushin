@@ -188,6 +188,20 @@ export type ConversationSummary = {
   to_review: string[];
 };
 
+// --- Particules ---
+
+// Emploi du catalogue (miroir de ParticleUsage dans src-tauri/src/particles/model.rs).
+export type ParticleUsage = {
+  id: number;
+  particle: string;
+  usage: string; // nom court de l'emploi
+  explanation: string;
+  example_jp: string;
+  example_fr: string;
+  active: boolean; // "je connais"
+  position: number;
+};
+
 // --- Sauvegarde ---
 
 // Résultat d'un import (miroir de ImportReport dans src-tauri/src/backup/model.rs).

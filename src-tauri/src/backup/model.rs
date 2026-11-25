@@ -6,7 +6,8 @@ use crate::error::AppError;
 
 // Identifie nos fichiers, et leur format (à augmenter si la forme change).
 pub(super) const FORMAT: &str = "kougakushin";
-pub(super) const VERSION: u32 = 2; // 2 : manuels (book) ajoutés
+// 2 : manuels (book) ajoutés ; 3 : état "je connais" des emplois de particules.
+pub(super) const VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
 #[serde(deny_unknown_fields)]
@@ -84,6 +85,14 @@ pub(super) struct SettingRecord {
     pub(super) value: String,
 }
 
+// Le catalogue des particules vient de la migration : seul l'état coché est sauvegardé.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ParticleUsageRecord {
+    pub(super) id: i64,
+    pub(super) active: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Backup {
@@ -96,6 +105,7 @@ pub(super) struct Backup {
     pub(super) cards: Vec<CardRecord>,
     pub(super) review_logs: Vec<ReviewLogRecord>,
     pub(super) settings: Vec<SettingRecord>,
+    pub(super) particle_usages: Vec<ParticleUsageRecord>,
 }
 
 impl Backup {

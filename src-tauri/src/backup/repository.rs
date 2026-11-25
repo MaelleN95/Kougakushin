@@ -3,8 +3,8 @@
 use sqlx::SqlitePool;
 
 use super::model::{
-    Backup, BookRecord, CardRecord, FORMAT, ItemRecord, LessonRecord, ReviewLogRecord,
-    SettingRecord, VERSION,
+    Backup, BookRecord, CardRecord, FORMAT, ItemRecord, LessonRecord, ParticleUsageRecord,
+    ReviewLogRecord, SettingRecord, VERSION,
 };
 
 // Toutes les données, dans l'ordre des id.
@@ -49,6 +49,11 @@ pub(super) async fn snapshot(
         settings: sqlx::query_as::<_, SettingRecord>("SELECT key, value FROM setting ORDER BY key")
             .fetch_all(pool)
             .await?,
+        particle_usages: sqlx::query_as::<_, ParticleUsageRecord>(
+            "SELECT id, active FROM particle_usage ORDER BY id",
+        )
+        .fetch_all(pool)
+        .await?,
     })
 }
 
@@ -162,6 +167,21 @@ pub(super) async fn replace_all(pool: &SqlitePool, backup: &Backup) -> Result<()
             .bind(&s.value)
             .execute(&mut *tx)
             .await?;
+    }
+    // Catalogue des particules : on ne remplace pas les lignes, on remet seulement l'état coché.
+    // Un emploi absent du fichier reste décoché ; un id inconnu du catalogue annule l'import.
+    sqlx::query("UPDATE particle_usage SET active = 0")
+        .execute(&mut *tx)
+        .await?;
+    for p in &backup.particle_usages {
+        let result = sqlx::query("UPDATE particle_usage SET active = ? WHERE id = ?")
+            .bind(p.active)
+            .bind(p.id)
+            .execute(&mut *tx)
+            .await?;
+        if result.rows_affected() == 0 {
+            return Err(sqlx::Error::RowNotFound);
+        }
     }
 
     tx.commit().await

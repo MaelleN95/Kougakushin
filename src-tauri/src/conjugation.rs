@@ -10,6 +10,6 @@ pub(crate) use commands::{
     conjugate_verb, list_conjugation_forms, list_verb_warnings, set_conjugation_form_known,
 };
 
-// Lus par `cards` (cartes de conjugaison).
-pub(crate) use model::{VerbForm, VerbType, conjugate};
+// Lus par `cards` (cartes de conjugaison) et `items` (connaissances pour l'IA).
+pub(crate) use model::{Conjugation, VerbForm, VerbType, conjugate};
 pub(crate) use repository::known_forms;

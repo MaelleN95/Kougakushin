@@ -465,6 +465,7 @@ mod tests {
                 explanation: "particule du thème".into(),
             }],
             focus: vec![word("りんご", None, "pomme")],
+            ..Knowledge::default()
         }
     }
 
@@ -573,6 +574,7 @@ mod tests {
                 word("えいが", None, "film"),
                 word("いっしょに", None, "ensemble"),
             ],
+            ..Knowledge::default()
         }
     }
 

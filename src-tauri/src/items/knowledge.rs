@@ -2,6 +2,8 @@
 
 use sqlx::SqlitePool;
 
+use crate::conjugation::{Conjugation, VerbForm, VerbType, conjugate, known_forms};
+
 #[derive(Debug, Clone, PartialEq, sqlx::FromRow)]
 pub(crate) struct KnownWord {
     pub(crate) kana: String,
@@ -21,6 +23,10 @@ pub(crate) struct Knowledge {
     pub(crate) grammar: Vec<KnownGrammar>,
     // 3 mots à placer en priorité, tirés au sort parmi les plus récents ou les plus oubliés.
     pub(crate) focus: Vec<KnownWord>,
+    // Formes verbales que je connais (D41) : l'IA ne conjugue qu'avec elles.
+    pub(crate) verb_forms: Vec<VerbForm>,
+    // Tableaux de conjugaison de mes verbes actifs, pour le garde-fou (formes conjuguées reconnues).
+    pub(crate) conjugations: Vec<Conjugation>,
 }
 
 // Filtre de leçons pour SQL : tableau JSON lu par json_each, ou NULL (= toutes les leçons).
@@ -84,10 +90,34 @@ pub(crate) async fn find_knowledge(
     .fetch_all(pool)
     .await?;
 
+    // Verbes actifs des mêmes leçons ; un verbe dont la terminaison ne correspond pas au type
+    // est ignoré (signalé dans l'onglet Éléments).
+    let verbs: Vec<(String, Option<String>, String)> = sqlx::query_as(
+        r#"
+        SELECT kana, kanji, word_type FROM item
+        WHERE kind = 'vocab' AND active = 1
+          AND word_type IN ('ru_verb', 'u_verb', 'irregular_verb')
+          AND (?1 IS NULL OR lesson_id IN (SELECT value FROM json_each(?1)))
+        ORDER BY id
+        "#,
+    )
+    .bind(&lessons)
+    .fetch_all(pool)
+    .await?;
+    let conjugations = verbs
+        .iter()
+        .filter_map(|(kana, kanji, word_type)| {
+            let verb_type = VerbType::from_db(word_type)?;
+            conjugate(kana, kanji.as_deref(), verb_type).ok()
+        })
+        .collect();
+
     Ok(Knowledge {
         words,
         grammar,
         focus,
+        verb_forms: known_forms(pool).await?,
+        conjugations,
     })
 }
 
@@ -96,6 +126,7 @@ mod tests {
     use sqlx::sqlite::SqlitePoolOptions;
 
     use super::find_knowledge;
+    use crate::conjugation::VerbForm;
 
     #[test]
     fn filtre_par_lecon_et_exclut_les_inactifs() {
@@ -108,7 +139,7 @@ mod tests {
             sqlx::migrate!("./migrations").run(&pool).await.unwrap();
             sqlx::raw_sql(
                 "INSERT INTO lesson (title, date) VALUES ('L1', '2026-11-18'), ('L2', '2026-11-25');
-                 INSERT INTO item (lesson_id, kind, kana, kanji, meaning) VALUES (1, 'vocab', 'たべる', '食べる', 'manger');
+                 INSERT INTO item (lesson_id, kind, kana, kanji, meaning, word_type) VALUES (1, 'vocab', 'たべる', '食べる', 'manger', 'ru_verb');
                  INSERT INTO item (lesson_id, kind, active, kana, meaning) VALUES (1, 'vocab', 0, 'のむ', 'boire');
                  INSERT INTO item (lesson_id, kind, kana, meaning) VALUES (2, 'vocab', 'いく', 'aller');
                  INSERT INTO item (lesson_id, kind, title, explanation) VALUES (2, 'grammar', 'は', 'thème');",
@@ -127,6 +158,18 @@ mod tests {
             assert_eq!(lesson_1.words.len(), 1);
             assert_eq!(lesson_1.words[0].kanji.as_deref(), Some("食べる"));
             assert!(lesson_1.grammar.is_empty());
+
+            // Formes connues par défaut (migration) et tableau du seul verbe typé.
+            assert_eq!(all.verb_forms, [VerbForm::Masu]);
+            assert_eq!(all.conjugations.len(), 1);
+            assert_eq!(all.conjugations[0][1].kanji.as_deref(), Some("食べます"));
+            assert!(
+                find_knowledge(&pool, &[2])
+                    .await
+                    .unwrap()
+                    .conjugations
+                    .is_empty()
+            );
         });
     }
 }

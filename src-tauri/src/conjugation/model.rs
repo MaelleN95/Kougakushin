@@ -85,6 +85,21 @@ impl VerbForm {
     pub(crate) fn from_db(value: &str) -> Option<VerbForm> {
         VerbForm::ALL.into_iter().find(|f| f.as_str() == value)
     }
+
+    // Nom de la forme dans les consignes de l'IA.
+    pub(crate) fn prompt_name(self) -> &'static str {
+        match self {
+            VerbForm::Dictionary => "forme du dictionnaire",
+            VerbForm::Masu => "ます",
+            VerbForm::Masen => "ません",
+            VerbForm::Mashita => "ました",
+            VerbForm::MasenDeshita => "ませんでした",
+            VerbForm::Te => "て",
+            VerbForm::Ta => "た",
+            VerbForm::Nai => "ない",
+            VerbForm::Nakatta => "なかった",
+        }
+    }
 }
 
 // Une case du tableau de conjugaison. `kanji` : la même forme écrite avec le kanji du mot

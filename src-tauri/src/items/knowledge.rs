@@ -2,6 +2,8 @@
 
 use sqlx::SqlitePool;
 
+use crate::particles::{self, KnownParticleUsage};
+
 #[derive(Debug, Clone, PartialEq, sqlx::FromRow)]
 pub(crate) struct KnownWord {
     pub(crate) kana: String,
@@ -21,6 +23,10 @@ pub(crate) struct Knowledge {
     pub(crate) grammar: Vec<KnownGrammar>,
     // 3 mots à placer en priorité, tirés au sort parmi les plus récents ou les plus oubliés.
     pub(crate) focus: Vec<KnownWord>,
+    // Emplois de particules cochés "je connais" (D38 A), toutes leçons confondues.
+    pub(crate) particles: Vec<KnownParticleUsage>,
+    // Particules du catalogue dont aucun emploi n'est coché : signalées par le garde-fou.
+    pub(crate) unknown_particles: Vec<String>,
 }
 
 // Filtre de leçons pour SQL : tableau JSON lu par json_each, ou NULL (= toutes les leçons).
@@ -88,6 +94,8 @@ pub(crate) async fn find_knowledge(
         words,
         grammar,
         focus,
+        particles: particles::find_known_usages(pool).await?,
+        unknown_particles: particles::find_unknown_particles(pool).await?,
     })
 }
 
@@ -127,6 +135,18 @@ mod tests {
             assert_eq!(lesson_1.words.len(), 1);
             assert_eq!(lesson_1.words[0].kanji.as_deref(), Some("食べる"));
             assert!(lesson_1.grammar.is_empty());
+
+            // Particules : rien de coché au départ, puis un emploi de に.
+            assert!(all.particles.is_empty());
+            assert_eq!(all.unknown_particles.len(), 22);
+            sqlx::query("UPDATE particle_usage SET active = 1 WHERE id = 11")
+                .execute(&pool)
+                .await
+                .unwrap();
+            let after = find_knowledge(&pool, &[]).await.unwrap();
+            assert_eq!(after.particles.len(), 1);
+            assert_eq!(after.particles[0].particle, "に");
+            assert!(!after.unknown_particles.iter().any(|p| p == "に"));
         });
     }
 }

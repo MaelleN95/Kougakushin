@@ -7,6 +7,7 @@ mod db;
 mod error;
 mod items;
 mod lessons;
+mod particles;
 mod settings;
 
 use ai::{
@@ -22,6 +23,7 @@ use items::{
     set_items_active, update_item,
 };
 use lessons::{create_lesson, delete_lesson, list_lessons, update_lesson};
+use particles::{list_particle_usages, set_particle_active, set_particle_usage_active};
 use settings::{get_settings, update_settings};
 use tauri::Manager;
 
@@ -89,7 +91,10 @@ pub fn run() {
             end_conversation,
             translate_message,
             export_data,
-            import_data
+            import_data,
+            list_particle_usages,
+            set_particle_usage_active,
+            set_particle_active
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

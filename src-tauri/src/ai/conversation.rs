@@ -791,6 +791,7 @@ mod tests {
                     explanation: "Action en cours".into(),
                 }],
                 focus: vec![],
+                ..Knowledge::default()
             };
             let theme = find_theme(Some("directions")).unwrap();
             let first = next_message(&ollama, model, theme, &k, &[]).await.unwrap();

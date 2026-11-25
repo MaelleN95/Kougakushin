@@ -8,7 +8,9 @@ use crate::items::Knowledge;
 // Longueur maximale d'une explication de grammaire dans les consignes (prompt plus court).
 const MAX_EXPLANATION_CHARS: usize = 200;
 
-// Mots grammaticaux jamais signalés comme inconnus (particules, copule, terminaisons polies).
+// Mots grammaticaux connus d'office (particules, copule, terminaisons polies).
+// Exception : une particule dont aucun emploi n'est coché (`Knowledge::unknown_particles`) est
+// signalée. La copule et les terminaisons (です, だ, ます, ません) restent toujours connues.
 const FUNCTION_WORDS: [&str; 18] = [
     "は",
     "が",
@@ -40,15 +42,31 @@ fn is_katakana(c: char) -> bool {
     ('\u{30A1}'..='\u{30FA}').contains(&c) || c == 'ー'
 }
 
+// Hiragana (bloc Unicode 3041-3096).
+fn is_hiragana(c: char) -> bool {
+    ('\u{3041}'..='\u{3096}').contains(&c)
+}
+
 // Mots et kanji d'une phrase absents de ma base.
 // - `declared` : mots que l'IA déclare avoir utilisés (forme du dictionnaire) ;
+// - particules sans aucun emploi coché : repérées aussi dans la phrase, car elles sont séparées
+//   par des espaces (D10). Seule la présence de la particule est contrôlable, pas son emploi ;
 // - kanji : vérifiés caractère par caractère dans la phrase elle-même (fiable, sans l'IA).
 pub(super) fn unknown_words(
     japanese: &str,
     declared: &[String],
     knowledge: &Knowledge,
 ) -> Vec<String> {
-    let mut known: HashSet<&str> = FUNCTION_WORDS.into_iter().collect();
+    let unknown_particles: HashSet<&str> = knowledge
+        .unknown_particles
+        .iter()
+        .map(|p| p.as_str())
+        .collect();
+    let mut known: HashSet<&str> = FUNCTION_WORDS
+        .into_iter()
+        .filter(|w| !unknown_particles.contains(w))
+        .collect();
+    known.extend(knowledge.particles.iter().map(|p| p.particle.as_str()));
     let mut known_kanji: HashSet<char> = HashSet::new();
     for word in &knowledge.words {
         known.insert(word.kana.trim());
@@ -63,6 +81,13 @@ pub(super) fn unknown_words(
         let word = word.trim();
         if !word.is_empty() && !known.contains(word) && !unknown.iter().any(|u| u == word) {
             unknown.push(word.to_string());
+        }
+    }
+    // Particule isolée entre deux espaces (ponctuation retirée) : "わたし は、" => "は".
+    for token in japanese.split_whitespace() {
+        let token = token.trim_matches(|c: char| !is_hiragana(c));
+        if unknown_particles.contains(token) && !unknown.iter().any(|u| u == token) {
+            unknown.push(token.to_string());
         }
     }
     // Mots en katakana (emprunts : コーヒー, テーブル...) : ils ne se conjuguent pas, on peut donc
@@ -192,16 +217,45 @@ pub(super) fn knowledge_rules(knowledge: &Knowledge) -> String {
     format!(
         "Règles strictes :\n\
          1. Vocabulaire : UNIQUEMENT les mots de la liste ci-dessous (conjugués si besoin), \
-         plus les particules.\n\
-         2. Grammaire : UNIQUEMENT les points de la liste ci-dessous, plus les particules de base \
-         et la forme polie です / ます (décision D11).\n\
+         plus les particules autorisées.\n\
+         2. Grammaire : UNIQUEMENT les points de la liste ci-dessous, plus la forme polie \
+         です / ます (décision D11).\n\
          3. {} Écris avec leur kanji les mots de la liste qui en ont un.\n\
          4. Dans `words`, liste les noms, verbes, adjectifs et adverbes de ton japonais, à leur \
          forme du dictionnaire, écrits exactement comme dans la liste de vocabulaire \
          (sans les particules ni です / ます).\n\n\
-         Vocabulaire :\n{}\n\nGrammaire :\n{grammar}",
+         Vocabulaire :\n{}\n\nGrammaire :\n{grammar}\n\n{}",
         writing_rule(&allowed_kanji(knowledge)),
         vocabulary.join("\n"),
+        particle_rule(knowledge),
+    )
+}
+
+// Emplois de particules autorisés (D38 A), regroupés par particule dans l'ordre du catalogue :
+// "- に : Destination ; Moment précis".
+fn particle_rule(knowledge: &Knowledge) -> String {
+    let mut groups: Vec<(&str, Vec<&str>)> = Vec::new();
+    for p in &knowledge.particles {
+        match groups
+            .iter_mut()
+            .find(|(particle, _)| *particle == p.particle)
+        {
+            Some((_, usages)) => usages.push(&p.usage),
+            None => groups.push((&p.particle, vec![&p.usage])),
+        }
+    }
+    if groups.is_empty() {
+        return "Particules : aucun emploi connu pour l'instant ; utilise le moins de \
+                particules possible."
+            .to_string();
+    }
+    let lines: Vec<String> = groups
+        .iter()
+        .map(|(particle, usages)| format!("- {particle} : {}", usages.join(" ; ")))
+        .collect();
+    format!(
+        "Particules : n'utilise que ces emplois (aucune autre particule, aucun autre emploi) :\n{}",
+        lines.join("\n")
     )
 }
 
@@ -240,8 +294,9 @@ pub(super) fn test_model() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_japanese, unknown_words};
+    use super::{knowledge_rules, normalize_japanese, unknown_words};
     use crate::items::{Knowledge, KnownWord};
+    use crate::particles::KnownParticleUsage;
 
     fn word(kana: &str, kanji: Option<&str>) -> KnownWord {
         KnownWord {
@@ -264,6 +319,61 @@ mod tests {
             &knowledge,
         );
         assert_eq!(unknown, ["テーブル"]);
+    }
+
+    fn usage(particle: &str, usage: &str) -> KnownParticleUsage {
+        KnownParticleUsage {
+            particle: particle.into(),
+            usage: usage.into(),
+        }
+    }
+
+    #[test]
+    fn particule_sans_emploi_coche_signalee_dans_la_phrase_et_les_mots_declares() {
+        let knowledge = Knowledge {
+            words: vec![word("がっこう", None), word("いく", None)],
+            particles: vec![usage("に", "Destination")],
+            unknown_particles: vec!["は".into(), "を".into(), "から".into()],
+            ..Knowledge::default()
+        };
+        // は repéré dans la phrase (ponctuation retirée), から déclaré par l'IA ;
+        // に a un emploi coché ; です et ます restent toujours connus.
+        let unknown = unknown_words(
+            "わたし は、 がっこう に いきます。",
+            &["から".into(), "に".into(), "です".into(), "ます".into()],
+            &knowledge,
+        );
+        assert_eq!(unknown, ["から", "は"]);
+        // Une particule collée à un mot n'est pas isolée, donc pas repérée (limite connue).
+        assert!(unknown_words("わたしは がっこう に いきます", &[], &knowledge).is_empty());
+    }
+
+    #[test]
+    fn particule_absente_du_catalogue_ou_coche_reste_connue() {
+        let knowledge = Knowledge {
+            particles: vec![usage("や", "Liste non exhaustive")],
+            ..Knowledge::default()
+        };
+        // や ne fait pas partie des mots connus d'office : connu ici grâce à son emploi coché.
+        assert!(
+            unknown_words("りんご や みかん", &["や".into(), "は".into()], &knowledge).is_empty()
+        );
+    }
+
+    #[test]
+    fn consignes_listent_les_emplois_de_particules_coches() {
+        let knowledge = Knowledge {
+            particles: vec![
+                usage("に", "Destination"),
+                usage("に", "Moment précis"),
+                usage("で", "Lieu de l'action"),
+            ],
+            ..Knowledge::default()
+        };
+        let rules = knowledge_rules(&knowledge);
+        assert!(rules.contains("Particules : n'utilise que ces emplois"));
+        assert!(rules.contains("- に : Destination ; Moment précis\n- で : Lieu de l'action"));
+        assert!(knowledge_rules(&Knowledge::default()).contains("aucun emploi connu"));
     }
 
     #[test]

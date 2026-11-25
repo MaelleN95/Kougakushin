@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, Local, NaiveDateTime, Utc};
 
+use crate::conjugation::{self, VerbForm, VerbType};
 use crate::error::AppError;
 use crate::items::ItemContent;
 
@@ -37,18 +38,27 @@ pub(crate) enum Direction {
     FrJp,      // français => japonais
     JpFr,      // japonais (kana) => français
     KanjiRead, // kanji => lecture + sens
+    // forme du dictionnaire => forme conjuguée (D41) ; la forme est dans la colonne `form`
+    Conjugation,
 }
 
 impl Direction {
-    // Tous les sens possibles (pour supprimer ceux qui ne sont plus voulus).
-    pub(super) const ALL: [Direction; 3] = [Direction::FrJp, Direction::JpFr, Direction::KanjiRead];
+    // Tous les sens possibles.
+    pub(super) const ALL: [Direction; 4] = [
+        Direction::FrJp,
+        Direction::JpFr,
+        Direction::KanjiRead,
+        Direction::Conjugation,
+    ];
 
-    // Valeur de la colonne `direction` (doit correspondre au CHECK de la migration).
+    // Valeur de la colonne `direction` (plus de CHECK en base depuis la migration 20261126000200 :
+    // cet enum est la seule liste des valeurs permises).
     pub(super) fn as_str(self) -> &'static str {
         match self {
             Direction::FrJp => "fr_jp",
             Direction::JpFr => "jp_fr",
             Direction::KanjiRead => "kanji_read",
+            Direction::Conjugation => "conjugation",
         }
     }
 
@@ -58,17 +68,67 @@ impl Direction {
     }
 }
 
-// Cartes qu'un élément doit avoir : 2 par mot, 3 s'il a un kanji, aucune pour la grammaire.
-// Même règle que le rattrapage SQL de la migration 20261122100000.
-pub(super) fn directions_for(content: &ItemContent) -> Vec<Direction> {
+// Identité d'une carte pour un élément : son sens, et sa forme pour une carte de conjugaison.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct CardKey {
+    pub(super) direction: Direction,
+    pub(super) form: Option<VerbForm>,
+}
+
+impl CardKey {
+    fn plain(direction: Direction) -> CardKey {
+        CardKey {
+            direction,
+            form: None,
+        }
+    }
+
+    pub(super) fn conjugation(form: VerbForm) -> CardKey {
+        CardKey {
+            direction: Direction::Conjugation,
+            form: Some(form),
+        }
+    }
+
+    // Colonnes direction + form => clé ; None si une valeur est inconnue ou incohérente.
+    pub(super) fn from_db(direction: &str, form: Option<&str>) -> Option<CardKey> {
+        let direction = Direction::from_db(direction)?;
+        match (direction, form) {
+            (Direction::Conjugation, Some(form)) => {
+                VerbForm::from_db(form).map(CardKey::conjugation)
+            }
+            (Direction::Conjugation, None) | (_, Some(_)) => None,
+            (direction, None) => Some(CardKey::plain(direction)),
+        }
+    }
+}
+
+// Cartes qu'un élément doit avoir : 2 par mot, 3 s'il a un kanji, aucune pour la grammaire,
+// plus une carte de conjugaison par forme connue pour un verbe conjugable (D41).
+// Même règle que les rattrapages SQL des migrations 20261122100000 et 20261126000200.
+pub(super) fn wanted_cards(content: &ItemContent, known_forms: &[VerbForm]) -> Vec<CardKey> {
     match content {
-        ItemContent::Vocab { kanji, .. } => {
-            let mut directions = vec![Direction::FrJp, Direction::JpFr];
+        ItemContent::Vocab {
+            kana,
+            kanji,
+            word_type,
+            ..
+        } => {
+            let mut cards = vec![
+                CardKey::plain(Direction::FrJp),
+                CardKey::plain(Direction::JpFr),
+            ];
             // is_some_and : Some avec une condition vraie ; un kanji vide ne compte pas.
             if kanji.as_deref().is_some_and(|k| !k.trim().is_empty()) {
-                directions.push(Direction::KanjiRead);
+                cards.push(CardKey::plain(Direction::KanjiRead));
             }
-            directions
+            // and_then : None si ce n'est pas un verbe. Un verbe dont la terminaison ne
+            // correspond pas au type n'a pas de cartes de conjugaison (signalé dans Éléments).
+            let verb_type = word_type.and_then(VerbType::from_word_type);
+            if verb_type.is_some_and(|t| conjugation::conjugate(kana, None, t).is_ok()) {
+                cards.extend(known_forms.iter().copied().map(CardKey::conjugation));
+            }
+            cards
         }
         ItemContent::Grammar { .. } => Vec::new(),
     }
@@ -162,7 +222,9 @@ pub(super) struct SessionScope {
 pub(super) struct SessionRow {
     card_id: i64,
     direction: String,
+    form: Option<String>,
     state: i64,
+    word_type: Option<String>,
     kana: Option<String>,
     romaji: Option<String>,
     kanji: Option<String>,
@@ -171,11 +233,52 @@ pub(super) struct SessionRow {
     example_fr: Option<String>,
 }
 
+// Question d'une carte de conjugaison, calculée par le code : "たべる - forme en て ?" => たべて.
+// Pour la forme du dictionnaire, la question part de la forme en ます (たべます => たべる).
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct ConjugationQuiz {
+    form: VerbForm,
+    question_kana: String,
+    question_kanji: Option<String>,
+    answer_kana: String,
+    answer_kanji: Option<String>,
+}
+
+impl ConjugationQuiz {
+    // None si le verbe ne se conjugue pas (type absent ou terminaison incompatible).
+    fn build(
+        kana: &str,
+        kanji: Option<&str>,
+        word_type: Option<&str>,
+        form: VerbForm,
+    ) -> Option<ConjugationQuiz> {
+        let verb_type = word_type.and_then(VerbType::from_db)?;
+        let forms = conjugation::conjugate(kana, kanji, verb_type).ok()?;
+        let find = |wanted: VerbForm| forms.iter().find(|f| f.form == wanted);
+        let question_form = if form == VerbForm::Dictionary {
+            VerbForm::Masu
+        } else {
+            VerbForm::Dictionary
+        };
+        let question = find(question_form)?;
+        let answer = find(form)?;
+        Some(ConjugationQuiz {
+            form,
+            question_kana: question.kana.clone(),
+            question_kanji: question.kanji.clone(),
+            answer_kana: answer.kana.clone(),
+            answer_kanji: answer.kanji.clone(),
+        })
+    }
+}
+
 // Carte à réviser, envoyée au front : de quoi poser la question et montrer la réponse.
 #[derive(Debug, serde::Serialize)]
 pub(crate) struct ReviewCard {
     card_id: i64,
     direction: Direction,
+    // Rempli seulement pour direction = conjugation.
+    conjugation: Option<ConjugationQuiz>,
     is_new: bool,
     kana: String,
     romaji: Option<String>,
@@ -186,19 +289,43 @@ pub(crate) struct ReviewCard {
 }
 
 impl SessionRow {
-    pub(super) fn into_review_card(self) -> Result<ReviewCard, AppError> {
-        Ok(ReviewCard {
+    // Ok(None) : carte de conjugaison d'un verbe qui ne se conjugue pas (ex. données importées
+    // incohérentes) ; écartée de la session plutôt que de bloquer toutes les révisions.
+    pub(super) fn into_review_card(self) -> Result<Option<ReviewCard>, AppError> {
+        let key = CardKey::from_db(&self.direction, self.form.as_deref())
+            .ok_or(AppError::InvalidData("direction"))?;
+        let kana = self.kana.ok_or(AppError::InvalidData("kana"))?;
+        let conjugation = match key.form {
+            Some(form) => {
+                let quiz = ConjugationQuiz::build(
+                    &kana,
+                    self.kanji.as_deref(),
+                    self.word_type.as_deref(),
+                    form,
+                );
+                if quiz.is_none() {
+                    log::warn!(
+                        "Carte de conjugaison {} écartée : verbe non conjugable",
+                        self.card_id
+                    );
+                    return Ok(None);
+                }
+                quiz
+            }
+            None => None,
+        };
+        Ok(Some(ReviewCard {
             card_id: self.card_id,
-            direction: Direction::from_db(&self.direction)
-                .ok_or(AppError::InvalidData("direction"))?,
+            direction: key.direction,
+            conjugation,
             is_new: self.state == 0,
-            kana: self.kana.ok_or(AppError::InvalidData("kana"))?,
+            kana,
             romaji: self.romaji,
             kanji: self.kanji,
             meaning: self.meaning.ok_or(AppError::InvalidData("meaning"))?,
             example_jp: self.example_jp,
             example_fr: self.example_fr,
-        })
+        }))
     }
 }
 
@@ -221,35 +348,105 @@ mod tests {
     use chrono::{Duration, Utc};
 
     use super::{
-        Direction, directions_for, from_db_date, start_of_local_day, state_from_db, state_to_db,
-        to_db_date,
+        CardKey, ConjugationQuiz, Direction, from_db_date, start_of_local_day, state_from_db,
+        state_to_db, to_db_date, wanted_cards,
     };
-    use crate::items::ItemContent;
+    use crate::conjugation::VerbForm;
+    use crate::items::{ItemContent, WordType};
 
     fn vocab(kanji: Option<&str>) -> ItemContent {
+        verb("たべる", kanji, None)
+    }
+
+    fn verb(kana: &str, kanji: Option<&str>, word_type: Option<WordType>) -> ItemContent {
         ItemContent::Vocab {
-            kana: "たべる".into(),
+            kana: kana.into(),
             romaji: None,
             kanji: kanji.map(String::from),
             meaning: "manger".into(),
-            word_type: None,
+            word_type,
         }
+    }
+
+    // Sens seuls (sans forme), pour comparer simplement.
+    fn directions(content: &ItemContent, known: &[VerbForm]) -> Vec<Direction> {
+        wanted_cards(content, known)
+            .into_iter()
+            .map(|k| k.direction)
+            .collect()
     }
 
     #[test]
     fn regle_de_generation() {
         use Direction::*;
-        assert_eq!(directions_for(&vocab(None)), vec![FrJp, JpFr]);
-        assert_eq!(directions_for(&vocab(Some("  "))), vec![FrJp, JpFr]);
+        let known = [VerbForm::Masu];
+        assert_eq!(directions(&vocab(None), &known), vec![FrJp, JpFr]);
+        assert_eq!(directions(&vocab(Some("  ")), &known), vec![FrJp, JpFr]);
         assert_eq!(
-            directions_for(&vocab(Some("食べる"))),
+            directions(&vocab(Some("食べる")), &known),
             vec![FrJp, JpFr, KanjiRead]
         );
         let grammar = ItemContent::Grammar {
             title: "t".into(),
             explanation: "e".into(),
         };
-        assert!(directions_for(&grammar).is_empty());
+        assert!(wanted_cards(&grammar, &known).is_empty());
+    }
+
+    #[test]
+    fn une_carte_de_conjugaison_par_forme_connue() {
+        let known = [VerbForm::Masu, VerbForm::Te];
+        let ru = verb("たべる", None, Some(WordType::RuVerb));
+        assert_eq!(
+            wanted_cards(&ru, &known)[2..],
+            [
+                CardKey::conjugation(VerbForm::Masu),
+                CardKey::conjugation(VerbForm::Te)
+            ]
+        );
+        // Aucune forme connue, ou terminaison incompatible avec le type : pas de carte.
+        assert_eq!(wanted_cards(&ru, &[]).len(), 2);
+        let broken = verb("たべ", None, Some(WordType::RuVerb));
+        assert_eq!(wanted_cards(&broken, &known).len(), 2);
+        // Un nom n'a pas de conjugaison.
+        let noun = verb("ほん", None, Some(WordType::Noun));
+        assert_eq!(wanted_cards(&noun, &known).len(), 2);
+    }
+
+    #[test]
+    fn cle_de_carte_depuis_la_base() {
+        assert_eq!(
+            CardKey::from_db("conjugation", Some("te")),
+            Some(CardKey::conjugation(VerbForm::Te))
+        );
+        assert_eq!(
+            CardKey::from_db("fr_jp", None).map(|k| k.direction),
+            Some(Direction::FrJp)
+        );
+        // Incohérences : forme manquante, forme sur une carte ordinaire, valeurs inconnues.
+        assert_eq!(CardKey::from_db("conjugation", None), None);
+        assert_eq!(CardKey::from_db("fr_jp", Some("te")), None);
+        assert_eq!(CardKey::from_db("conjugation", Some("volitive")), None);
+        assert_eq!(CardKey::from_db("kanji", None), None);
+    }
+
+    #[test]
+    fn question_de_conjugaison() {
+        let te = ConjugationQuiz::build("たべる", Some("食べる"), Some("ru_verb"), VerbForm::Te)
+            .unwrap();
+        assert_eq!(
+            (te.question_kana.as_str(), te.answer_kana.as_str()),
+            ("たべる", "たべて")
+        );
+        assert_eq!(te.answer_kanji.as_deref(), Some("食べて"));
+        // Forme du dictionnaire : la question part de la forme en ます.
+        let dico =
+            ConjugationQuiz::build("いく", None, Some("u_verb"), VerbForm::Dictionary).unwrap();
+        assert_eq!(
+            (dico.question_kana.as_str(), dico.answer_kana.as_str()),
+            ("いきます", "いく")
+        );
+        assert!(ConjugationQuiz::build("たべる", None, Some("noun"), VerbForm::Te).is_none());
     }
 
     #[test]

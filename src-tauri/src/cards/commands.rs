@@ -38,11 +38,15 @@ pub(super) async fn build_session(
     let more_new_available = repository::count_new(pool, scope).await? > new.len() as i64;
 
     // chain : les cartes à réviser d'abord, puis les nouvelles.
+    // flatten : écarte les None (cartes de conjugaison d'un verbe non conjugable).
     let cards = to_review
         .into_iter()
         .chain(new)
         .map(SessionRow::into_review_card)
-        .collect::<Result<_, _>>()?;
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .flatten()
+        .collect();
 
     Ok(ReviewSession {
         cards,
@@ -281,6 +285,36 @@ mod tests {
             assert_eq!(count(book).await, 2);
             assert_eq!(count(lesson).await, 4);
             assert_eq!(count(SessionScope::default()).await, 6);
+        });
+    }
+
+    #[test]
+    fn carte_de_conjugaison_dans_la_session() {
+        tauri::async_runtime::block_on(async {
+            let pool = pool_with_words(0).await; // un seul mot, inactif : aucune carte proposée
+            // Verbe たべる (食べる) avec sa carte ます, et un "verbe" non conjugable avec une carte
+            // ます incohérente (ex. fichier importé) : écartée sans bloquer la session.
+            sqlx::raw_sql(
+                "INSERT INTO item (lesson_id, kind, kana, kanji, meaning, word_type)
+                     VALUES (1, 'vocab', 'たべる', '食べる', 'manger', 'ru_verb'),
+                            (1, 'vocab', 'たべ', NULL, 'x', 'ru_verb');
+                 INSERT INTO card (item_id, direction, form)
+                     VALUES (2, 'conjugation', 'masu'), (3, 'conjugation', 'masu');",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            let session = build_session(&pool, SessionScope::default(), 0, noon())
+                .await
+                .unwrap();
+            assert_eq!(session.cards.len(), 1);
+            let card = serde_json::to_value(&session.cards[0]).unwrap();
+            assert_eq!(card["direction"], "conjugation");
+            assert_eq!(card["conjugation"]["form"], "masu");
+            assert_eq!(card["conjugation"]["question_kanji"], "食べる");
+            assert_eq!(card["conjugation"]["answer_kana"], "たべます");
+            assert_eq!(card["conjugation"]["answer_kanji"], "食べます");
         });
     }
 

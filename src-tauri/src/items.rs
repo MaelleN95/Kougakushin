@@ -11,8 +11,8 @@ pub(crate) use commands::{
     set_items_active, update_item,
 };
 
-// Lu par `cards` pour savoir quelles cartes générer.
-pub(crate) use model::ItemContent;
+// Lus par `cards` pour savoir quelles cartes générer (WordType : aussi par `conjugation`).
+pub(crate) use model::{ItemContent, WordType};
 
 // Lu par `ai` pour les exercices (vocabulaire et grammaire actifs).
 pub(crate) use knowledge::{Knowledge, find_knowledge};

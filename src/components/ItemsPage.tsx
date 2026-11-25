@@ -199,7 +199,10 @@ export default function ItemsPage() {
           {items.map((item) => (
             <li
               key={item.id}
-              className={`card flex items-start gap-3 ${item.active ? "" : "opacity-50"}`}
+              // Sélectionné : bordure et fond rouges légers (couleur d'accent de l'app).
+              className={`card flex items-start gap-3 ${item.active ? "" : "opacity-50"} ${
+                selected.includes(item.id) ? "border-red-700 bg-red-50 ring-1 ring-red-700" : ""
+              }`}
             >
               <input
                 type="checkbox"

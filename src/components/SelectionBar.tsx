@@ -18,7 +18,6 @@ type Props = {
 
 export default function SelectionBar(props: Props) {
   const { count, visibleCount, lessonGroups, busy } = props;
-  const [target, setTarget] = useState(""); // leçon de destination, "" = pas choisie
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   function handleDelete() {
@@ -52,24 +51,18 @@ export default function SelectionBar(props: Props) {
           <button className="btn" disabled={busy} onClick={() => props.onSetActive(false)}>
             Désactiver
           </button>
+          {/* Choisir une leçon déplace tout de suite ; le menu revient sur son libellé. */}
           <select
             className="field w-auto"
-            value={target}
-            onChange={(e) => setTarget(e.target.value)}
+            value=""
+            disabled={busy}
+            onChange={(e) => {
+              if (e.target.value !== "") props.onMove(Number(e.target.value));
+            }}
           >
             <option value="">Changer de leçon...</option>
             <LessonOptions groups={lessonGroups} />
           </select>
-          <button
-            className="btn"
-            disabled={busy || target === ""}
-            onClick={() => {
-              props.onMove(Number(target));
-              setTarget("");
-            }}
-          >
-            Déplacer
-          </button>
           <button
             className={confirmDelete ? "btn-primary" : "btn-danger"}
             disabled={busy}

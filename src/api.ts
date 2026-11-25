@@ -21,6 +21,7 @@ import type {
   ReviewScope,
   ReviewSession,
   Settings,
+  SummaryError,
   ThemeInfo,
   TranslationDirection,
   TranslationExercise,
@@ -76,8 +77,18 @@ export const api = {
     invoke<ConversationStart>("start_conversation", { lessonIds, themeId }),
   replyConversation: (lessonIds: number[], themeId: string, history: ChatTurn[]) =>
     invoke<AssistantMessage>("reply_conversation", { lessonIds, themeId, history }),
-  endConversation: (lessonIds: number[], themeId: string, history: ChatTurn[]) =>
-    invoke<ConversationSummary>("end_conversation", { lessonIds, themeId, history }),
+  // errors : corrections renvoyées par reviewConversationMessage pendant la conversation.
+  endConversation: (
+    lessonIds: number[],
+    themeId: string,
+    history: ChatTurn[],
+    errors: SummaryError[],
+  ) => invoke<ConversationSummary>("end_conversation", { lessonIds, themeId, history, errors }),
+  // Correction de mon dernier message, en arrière-plan ; null = pas d'erreur.
+  reviewConversationMessage: (lessonIds: number[], themeId: string, history: ChatTurn[]) =>
+    invoke<SummaryError | null>("review_conversation_message", { lessonIds, themeId, history }),
+  // Kanji de mon message absents de ma base (erreur de conversion du clavier probable).
+  checkMyMessage: (text: string) => invoke<string[]>("check_my_message", { text }),
   // Traduction japonais => français par le traducteur dédié.
   translateMessage: (text: string) => invoke<string>("translate_message", { text }),
 

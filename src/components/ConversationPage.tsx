@@ -12,6 +12,7 @@ import type {
   ConversationStart,
   ConversationSummary,
   Lesson,
+  SummaryError,
   ThemeInfo,
 } from "../types";
 
@@ -24,7 +25,8 @@ type Entry =
       showFrench: boolean;
       showHint: boolean;
     }
-  | { role: "user"; text: string };
+  // unknownKanji : kanji hors de ma base, signalés dès l'envoi (D35).
+  | { role: "user"; text: string; unknownKanji: string[] };
 
 // Historique pour Rust : seul le japonais de l'IA est renvoyé (pas ses aides).
 function toHistory(entries: Entry[]): ChatTurn[] {
@@ -50,6 +52,9 @@ export default function ConversationPage() {
   const [error, setError] = useState<string | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
+  // Corrections de mes messages, lancées en arrière-plan à chaque envoi (D34) ; attendues
+  // au moment du bilan. Une ref : leur arrivée ne doit pas redessiner l'écran.
+  const reviews = useRef<Promise<SummaryError | null>[]>([]);
 
   useEffect(() => {
     api.listLessons().then(setLessons).catch((e) => setError(errorMessage(e)));
@@ -78,6 +83,7 @@ export default function ConversationPage() {
       const started = await api.startConversation(selectedLessons, themeId);
       setStart(started);
       setEntries([assistantEntry(started.message)]);
+      reviews.current = [];
       setSummary(null);
       setAnswer("");
     } catch (e) {
@@ -90,15 +96,37 @@ export default function ConversationPage() {
   async function send(event?: FormEvent) {
     event?.preventDefault();
     if (start === null || waiting !== null || answer.trim() === "") return;
-    const withMine: Entry[] = [...entries, { role: "user", text: answer.trim() }];
+    const text = answer.trim();
+    const mineIndex = entries.length;
+    const withMine: Entry[] = [...entries, { role: "user", text, unknownKanji: [] }];
+    const history = toHistory(withMine);
     setEntries(withMine);
     setAnswer("");
     setWaiting("reply");
     setError(null);
+
+    // Kanji hors de ma base : contrôle immédiat par le code, affiché sous mon message.
+    api
+      .checkMyMessage(text)
+      .then((unknownKanji) =>
+        setEntries((list) =>
+          list.map((e, i) => (i === mineIndex && e.role === "user" ? { ...e, unknownKanji } : e)),
+        ),
+      )
+      .catch((e) => setError(errorMessage(e)));
+
     try {
       // On renvoie le thème tiré au départ (et pas "surprise", qui en tirerait un autre).
-      const reply = await api.replyConversation(selectedLessons, start.theme_id, toHistory(withMine));
-      setEntries([...withMine, assistantEntry(reply)]);
+      const replyCall = api.replyConversation(selectedLessons, start.theme_id, history);
+      // Correction lancée après la réponse, pour qu'Ollama traite la réponse en premier.
+      // Échec : message non corrigé, sans bloquer la conversation.
+      reviews.current.push(
+        api
+          .reviewConversationMessage(selectedLessons, start.theme_id, history)
+          .catch(() => null),
+      );
+      const reply = await replyCall;
+      setEntries((list) => [...list, assistantEntry(reply)]);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -111,7 +139,13 @@ export default function ConversationPage() {
     setWaiting("end");
     setError(null);
     try {
-      setSummary(await api.endConversation(selectedLessons, start.theme_id, toHistory(entries)));
+      // Attend les corrections encore en cours, puis garde les vraies erreurs.
+      const errors = (await Promise.all(reviews.current)).filter(
+        (e): e is SummaryError => e !== null,
+      );
+      setSummary(
+        await api.endConversation(selectedLessons, start.theme_id, toHistory(entries), errors),
+      );
     } catch (e) {
       setError(errorMessage(e)); // ex. aucune réponse de ma part
     } finally {
@@ -283,8 +317,14 @@ export default function ConversationPage() {
               </div>
             </div>
           ) : (
-            <div key={i} className="ml-12 rounded-lg bg-red-800 p-4 text-lg text-white">
-              {entry.text}
+            <div key={i} className="ml-12 space-y-1 rounded-lg bg-red-800 p-4 text-white">
+              <p className="text-lg">{entry.text}</p>
+              {entry.unknownKanji.length > 0 && (
+                <p className="text-xs text-red-100">
+                  Kanji hors de ta base : {entry.unknownKanji.join(", ")}. Vérifie la conversion
+                  du clavier.
+                </p>
+              )}
             </div>
           ),
         )}

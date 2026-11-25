@@ -10,6 +10,7 @@ use super::knowledge_prompt::{
     is_kanji, kanji_reminder, knowledge_rules, normalize_japanese, pick_index, unknown_words,
     writing_rule,
 };
+use super::to_french::to_french;
 use crate::error::AppError;
 use crate::items::{self, Knowledge};
 use crate::settings;
@@ -150,6 +151,16 @@ fn correction_system_prompt(exercise: &TranslationExercise) -> String {
         ),
         TranslationDirection::JpFr => ("en français", String::new()),
     };
+    // Vers le japonais : la phrase française est une traduction automatique de la référence,
+    // parfois inexacte. La référence fait donc foi, et ses mots sont ceux que l'élève connaît.
+    let reference_rule = match exercise.direction {
+        TranslationDirection::FrJp => {
+            " La traduction de référence est la réponse attendue et fait foi si la phrase \
+             française semble dire autre chose. N'utilise QUE des mots présents dans la \
+             référence ou dans la traduction de l'élève : n'en ajoute aucun autre."
+        }
+        TranslationDirection::JpFr => "",
+    };
     format!(
         "Tu es un professeur de japonais expérimenté, de langue maternelle japonaise. \
          Tu corriges la traduction d'une élève francophone, avec l'exigence d'un bon professeur.\n\
@@ -167,7 +178,8 @@ fn correction_system_prompt(exercise: &TranslationExercise) -> String {
          ou une formulation juste mais peu naturelle ; \"wrong\" si le sens ou la grammaire \
          est faux.\n\
          - correction : la meilleure traduction {target}, au plus près de celle de l'élève \
-         quand c'est possible. {rule}\n\
+         quand c'est possible. {rule}{reference_rule}\n\
+         - words : les mots porteurs de sens de ta correction, à leur forme du dictionnaire.\n\
          - explanation : en français, 1 à 3 phrases précises qui nomment la notion en jeu \
          (ex. 'particule に de destination', 'négation polie 〜ません'). Pas de compliments \
          vagues. Si c'est correct, signale une nuance ou une autre formulation naturelle utile."
@@ -198,9 +210,11 @@ fn correction_schema() -> serde_json::Value {
             "analysis": { "type": "string" },
             "verdict": { "type": "string", "enum": ["correct", "almost", "wrong"] },
             "correction": { "type": "string" },
+            // Mots porteurs de sens de la correction, forme du dictionnaire : contrôlés par le code.
+            "words": { "type": "array", "items": { "type": "string" } },
             "explanation": { "type": "string" }
         },
-        "required": ["analysis", "verdict", "correction", "explanation"]
+        "required": ["analysis", "verdict", "correction", "words", "explanation"]
     })
 }
 
@@ -222,9 +236,14 @@ async fn generate_with(
     let japanese_sentence = generate_japanese(ollama, models.model, knowledge, previous).await?;
     // Traduction par le modèle dédié : la version française correspond à la phrase réellement
     // générée (le modèle principal se trompait parfois de phrase à traduire).
-    let french = ollama
-        .translate_ja_to_fr(models.translator, &japanese_sentence.0)
-        .await?;
+    // La phrase est d'abord réécrite en kanji : voir to_french.rs.
+    let french = to_french(
+        ollama,
+        models.model,
+        models.translator,
+        &japanese_sentence.0,
+    )
+    .await?;
     Ok(TranslationExercise {
         direction,
         japanese: japanese_sentence.0,
@@ -275,21 +294,83 @@ async fn generate_japanese(
     best.ok_or(AppError::InvalidAiResponse)
 }
 
+// Réponse brute de l'IA : `words` (mots de sa correction) sert seulement au contrôle.
+#[derive(serde::Deserialize)]
+struct RawCorrection {
+    verdict: Verdict,
+    correction: String,
+    explanation: String,
+    words: Vec<String>,
+}
+
+// Mots de la correction japonaise absents de ma base, hors mots déjà présents dans la
+// référence ou dans ma réponse (ceux-là ne sont pas inventés par le correcteur).
+fn invented_words(
+    raw: &RawCorrection,
+    exercise: &TranslationExercise,
+    answer: &str,
+    knowledge: &Knowledge,
+) -> Vec<String> {
+    unknown_words(&raw.correction, &raw.words, knowledge)
+        .into_iter()
+        .filter(|w| !exercise.japanese.contains(w.as_str()) && !answer.contains(w.as_str()))
+        .collect()
+}
+
 async fn correct_with(
     ollama: &Ollama,
     model: &str,
     exercise: &TranslationExercise,
     answer: &str,
+    knowledge: &Knowledge,
 ) -> Result<Correction, AppError> {
-    ollama
-        .chat_json(ChatRequest {
-            model,
-            system: &correction_system_prompt(exercise),
-            turns: &[ChatTurn::user(correction_user_prompt(exercise, answer))],
-            schema: correction_schema(),
-            temperature: 0.2, // correction : on veut de la constance
-        })
-        .await
+    let mut user = correction_user_prompt(exercise, answer);
+    let mut last: Option<RawCorrection> = None;
+    // Deux essais : le second rappelle les mots interdits utilisés par le premier.
+    for _ in 0..2 {
+        let raw: RawCorrection = ollama
+            .chat_json(ChatRequest {
+                model,
+                system: &correction_system_prompt(exercise),
+                turns: &[ChatTurn::user(user.clone())],
+                schema: correction_schema(),
+                temperature: 0.2, // correction : on veut de la constance
+            })
+            .await?;
+        // Vers le français : pas de mots japonais à contrôler.
+        let invented = match exercise.direction {
+            TranslationDirection::FrJp => invented_words(&raw, exercise, answer, knowledge),
+            TranslationDirection::JpFr => Vec::new(),
+        };
+        if invented.is_empty() {
+            return Ok(Correction {
+                verdict: raw.verdict,
+                correction: raw.correction,
+                explanation: raw.explanation,
+            });
+        }
+        log::info!(
+            "Correction rejetée (mots hors base : {invented:?}) : {}",
+            raw.correction
+        );
+        user.push_str(&format!(
+            "\nTa correction précédente utilisait des mots hors de ses connaissances ({}) : \
+             corrige uniquement avec les mots de la référence et de sa traduction.",
+            invented.join(", ")
+        ));
+        last = Some(raw);
+    }
+    // Toujours des mots inventés : la phrase de référence sert de correction.
+    let raw = last.ok_or(AppError::InvalidAiResponse)?;
+    Ok(Correction {
+        verdict: raw.verdict,
+        correction: exercise.japanese.clone(),
+        explanation: format!(
+            "{} (Correction remplacée par la phrase de référence : la correction de l'IA \
+             utilisait des mots hors de ta base.)",
+            raw.explanation
+        ),
+    })
 }
 
 // --- Commandes Tauri ---
@@ -337,20 +418,21 @@ pub(crate) async fn correct_translation(
         ));
     }
     let model = settings::load(pool.inner()).await?.ollama_model;
-    let mut correction = correct_with(ollama.inner(), &model, &exercise, answer.trim()).await?;
+    let knowledge = items::find_knowledge(pool.inner(), &[]).await?; // toute ma base
+    let mut correction =
+        correct_with(ollama.inner(), &model, &exercise, answer.trim(), &knowledge).await?;
 
     // Garde-fou : l'IA juge parfois fausse une réponse identique à sa propre correction
     // (espaces, ponctuation ou kanji / kana mis à part). Le code la remet à "correct".
-    if exercise.direction == TranslationDirection::FrJp && correction.verdict != Verdict::Correct {
-        let knowledge = items::find_knowledge(pool.inner(), &[]).await?; // tous mes kanji
-        if normalize_japanese(answer.trim(), &knowledge)
+    if exercise.direction == TranslationDirection::FrJp
+        && correction.verdict != Verdict::Correct
+        && normalize_japanese(answer.trim(), &knowledge)
             == normalize_japanese(&correction.correction, &knowledge)
-        {
-            log::info!("Verdict corrigé en 'correct' (réponse identique) : {answer}");
-            correction.verdict = Verdict::Correct;
-            correction.explanation =
-                "Ta traduction est correcte (elle correspond à la correction proposée).".into();
-        }
+    {
+        log::info!("Verdict corrigé en 'correct' (réponse identique) : {answer}");
+        correction.verdict = Verdict::Correct;
+        correction.explanation =
+            "Ta traduction est correcte (elle correspond à la correction proposée).".into();
     }
     Ok(correction)
 }
@@ -529,7 +611,7 @@ mod tests {
                 "あした ともだち と えいが に みます",
                 "わたし は きょう えいが を みます",
             ] {
-                let c = correct_with(&ollama, model, &exercise, answer)
+                let c = correct_with(&ollama, model, &exercise, answer, &knowledge())
                     .await
                     .unwrap();
                 println!("CORRECTION {answer} => {c:?}");
@@ -555,10 +637,15 @@ mod tests {
             .await
             .unwrap();
             println!("exercice : {exercise:?}");
-            let correction =
-                correct_with(&ollama, model, &exercise, "わたし は りんご を たべます")
-                    .await
-                    .unwrap();
+            let correction = correct_with(
+                &ollama,
+                model,
+                &exercise,
+                "わたし は りんご を たべます",
+                &knowledge(),
+            )
+            .await
+            .unwrap();
             println!("correction : {correction:?}");
         });
     }

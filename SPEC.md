@@ -90,7 +90,9 @@ Garde-fou : après génération, l'application **signale les mots de la phrase a
 3. Je réponds en japonais (clavier IME). Je peux demander **un indice** ou **une traduction** de son dernier message.
 4. Bouton "Terminer" → bilan en français : mes erreurs corrigées, ce qui était bien, 2-3 éléments à revoir.
 
-La conversation n'est pas sauvegardée (seul le bilan peut l'être, optionnel).
+Chaque message est corrigé en arrière-plan juste après l'envoi (D34) ; le bilan rassemble ces corrections. Les kanji absents de ma base sont signalés sous mon message (D35, erreur de conversion du clavier probable).
+
+La conversation n'est pas sauvegardée en base ; elle est écrite dans le journal local pour le diagnostic (D36).
 
 ### 3.6 Réglages
 

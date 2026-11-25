@@ -10,8 +10,9 @@ mod lessons;
 mod settings;
 
 use ai::{
-    check_ollama, correct_translation, end_conversation, generate_translation,
-    list_conversation_themes, reply_conversation, start_conversation, translate_message,
+    check_my_message, check_ollama, correct_translation, end_conversation, generate_translation,
+    list_conversation_themes, reply_conversation, review_conversation_message, start_conversation,
+    translate_message,
 };
 use backup::{export_data, import_data};
 use books::{create_book, delete_book, list_books, update_book};
@@ -83,6 +84,8 @@ pub fn run() {
             list_conversation_themes,
             start_conversation,
             reply_conversation,
+            check_my_message,
+            review_conversation_message,
             end_conversation,
             translate_message,
             export_data,

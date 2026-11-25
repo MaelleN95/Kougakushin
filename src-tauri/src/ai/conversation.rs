@@ -7,9 +7,10 @@ use tauri::State;
 
 use super::client::{ChatRequest, ChatTurn, Ollama, Role};
 use super::knowledge_prompt::{
-    allowed_kanji, kanji_reminder, knowledge_rules, normalize_japanese, pick_index, unknown_words,
-    writing_rule,
+    allowed_kanji, is_kanji, kanji_reminder, knowledge_rules, normalize_japanese, pick_index,
+    unknown_words, writing_rule,
 };
+use super::to_french::to_french;
 use crate::error::AppError;
 use crate::items::{self, Knowledge};
 use crate::settings;
@@ -206,50 +207,96 @@ fn transcript(history: &[ChatTurn]) -> String {
         .join("\n")
 }
 
-fn summary_system_prompt(theme: &Theme, knowledge: &Knowledge) -> String {
+// Correction d'UN message (D34) : une petite tâche, bien plus fiable pour un petit modèle
+// que tout le bilan d'un coup.
+fn review_system_prompt(theme: &Theme, knowledge: &Knowledge) -> String {
     format!(
-        "Tu es un professeur de japonais natif, expérimenté et exigeant. Voici une conversation \
-         entre toi ({}) et ton élève francophone. Fais le bilan de SES messages (pas des tiens), \
-         en français.\n\
-         - analysis : D'ABORD, reprends chacun de ses messages et analyse-le précisément \
-         (particules, conjugaison, vocabulaire, naturel).\n\
-         - errors : une entrée par erreur réelle. student = sa phrase telle qu'écrite ; \
-         correction = la phrase corrigée ; explanation = courte, nomme la notion en jeu. \
-         N'invente pas d'erreur : un sujet omis, un mot écrit en kanji plutôt qu'en kana, \
-         ou l'absence d'espaces n'en sont pas. Vérifie caractère par caractère qu'un mot \
-         manque vraiment avant de le dire. Liste vide si tout est juste.\n\
-         - strengths : 1 à 3 réussites précises, uniquement ce qui est réellement juste dans \
-         ses phrases (une tournure fautive ne peut pas être citée en réussite).\n\
-         - to_review : 2 ou 3 notions ou mots à revoir.\n\
-         Pour les corrections en japonais : {}",
+        "Tu es un professeur de japonais natif, expérimenté et honnête. Dans une conversation, \
+         tu joues {} ; ton élève francophone vient de te répondre. Juge UNIQUEMENT sa réponse, \
+         en tenant compte de ta question.\n\
+         Ne sont PAS des erreurs : une réponse courte mais naturelle (ex. おなまえは？) ; un \
+         sujet omis ; un mot en kanji plutôt qu'en kana (ou l'inverse) ; l'absence d'espaces ; \
+         une autre formulation correcte.\n\
+         Sont des erreurs : particule, conjugaison, mot faux ou qui ne répond pas à la question, \
+         kanji qui ne correspond pas au mot voulu (souvent une erreur de conversion du clavier, \
+         ex. 先制 au lieu de 先生).\n\
+         Si une partie est incompréhensible, ne devine pas une autre phrase : dis-le dans \
+         l'explication.\n\
+         - analysis : D'ABORD, analyse sa réponse mot par mot.\n\
+         - is_correct : true si la réponse est juste et naturelle.\n\
+         - correction : sa réponse corrigée, au plus près de ce qu'elle a écrit (vide si juste).\n\
+         - explanation : en français, 1 à 2 phrases qui nomment la notion en jeu (vide si juste).\n\
+         Pour la correction : {}",
         theme.role,
         writing_rule(&allowed_kanji(knowledge))
+    )
+}
+
+fn review_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "analysis": { "type": "string" },
+            "is_correct": { "type": "boolean" },
+            "correction": { "type": "string" },
+            "explanation": { "type": "string" }
+        },
+        "required": ["analysis", "is_correct", "correction", "explanation"]
+    })
+}
+
+// Bilan final : les erreurs sont déjà relevées message par message ; l'IA ne rédige que
+// les réussites et les notions à revoir.
+fn summary_system_prompt(theme: &Theme, errors: &[SummaryError]) -> String {
+    let errors = if errors.is_empty() {
+        "aucune".to_string()
+    } else {
+        errors
+            .iter()
+            .map(|e| {
+                format!(
+                    "\"{}\" => \"{}\" ({})",
+                    e.student, e.correction, e.explanation
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" ; ")
+    };
+    format!(
+        "Tu es un professeur de japonais natif. Voici une conversation entre toi ({}) et ton \
+         élève francophone. Ses erreurs, déjà vérifiées : {errors}.\n\
+         Réponds en français :\n\
+         - strengths : 1 à 3 réussites précises, en citant ce qu'elle a RÉELLEMENT écrit et qui \
+         est juste (jamais une phrase de la liste des erreurs).\n\
+         - to_review : 2 ou 3 notions à revoir, tirées de ses erreurs (s'il n'y en a pas, des \
+         notions qu'elle a utilisées et qui méritent d'être consolidées).",
+        theme.role
     )
 }
 
 fn summary_schema() -> serde_json::Value {
     json!({
         "type": "object",
-        // `analysis` en premier : le modèle analyse avant de lister les erreurs.
         "properties": {
-            "analysis": { "type": "string" },
-            "errors": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "student": { "type": "string" },
-                        "correction": { "type": "string" },
-                        "explanation": { "type": "string" }
-                    },
-                    "required": ["student", "correction", "explanation"]
-                }
-            },
             "strengths": { "type": "array", "items": { "type": "string" } },
             "to_review": { "type": "array", "items": { "type": "string" } }
         },
-        "required": ["analysis", "errors", "strengths", "to_review"]
+        "required": ["strengths", "to_review"]
     })
+}
+
+// Kanji de mon message absents de ma base (D35) : souvent une erreur de conversion du clavier
+// (先制 au lieu de 先生). Contrôle par le code, sans IA. Sans doublon, dans l'ordre.
+fn my_unknown_kanji(text: &str, knowledge: &Knowledge) -> Vec<String> {
+    let known = allowed_kanji(knowledge);
+    let mut unknown: Vec<String> = Vec::new();
+    for c in text.chars().filter(|&c| is_kanji(c) && !known.contains(c)) {
+        let kanji = c.to_string();
+        if !unknown.contains(&kanji) {
+            unknown.push(kanji);
+        }
+    }
+    unknown
 }
 
 // --- Contrôles de l'historique envoyé par le front ---
@@ -322,44 +369,94 @@ async fn next_message(
     best.ok_or(AppError::InvalidAiResponse)
 }
 
-async fn summarize(
+// Réponse de l'IA pour la correction d'un message.
+#[derive(serde::Deserialize)]
+struct MessageReview {
+    is_correct: bool,
+    correction: String,
+    explanation: String,
+}
+
+// Corrige mon dernier message (D34), au vu du message de l'IA qui le précède.
+// None si le message est juste ou si l'erreur annoncée ne résiste pas aux contrôles.
+async fn review_message(
     ollama: &Ollama,
     model: &str,
     theme: &Theme,
     knowledge: &Knowledge,
     history: &[ChatTurn],
-) -> Result<ConversationSummary, AppError> {
-    let conversation = transcript(history);
-    let mut summary: ConversationSummary = ollama
+) -> Result<Option<SummaryError>, AppError> {
+    let Some((answer, before)) = history.split_last() else {
+        return Ok(None);
+    };
+    // Juste la question et la réponse : le contexte utile, sans noyer le modèle.
+    let exchange = transcript(&history[before.len().saturating_sub(1)..]);
+    let review: MessageReview = ollama
         .chat_json(ChatRequest {
             model,
-            system: &summary_system_prompt(theme, knowledge),
-            turns: &[ChatTurn::user(format!("Conversation :\n{conversation}"))],
+            system: &review_system_prompt(theme, knowledge),
+            turns: &[ChatTurn::user(exchange.clone())],
+            schema: review_schema(),
+            temperature: 0.2,
+        })
+        .await?;
+    if review.is_correct || review.correction.trim().is_empty() {
+        return Ok(None);
+    }
+    // `student` est mon message exact, recopié par le code : l'IA ne peut pas l'inventer.
+    let error = SummaryError {
+        student: answer.content.trim().to_string(),
+        correction: review.correction.trim().to_string(),
+        explanation: review.explanation.trim().to_string(),
+    };
+    // 1. Contrôle par le code : correction identique à mon message (espaces, ponctuation,
+    //    kanji / kana mis à part) => pas une erreur.
+    if normalize_japanese(&error.student, knowledge)
+        == normalize_japanese(&error.correction, knowledge)
+    {
+        log::info!("Fausse erreur écartée (identique) : {}", error.student);
+        return Ok(None);
+    }
+    // 2. Second avis de l'IA, centré sur cette seule phrase.
+    if !is_real_error(ollama, model, &exchange, &error).await? {
+        log::info!("Fausse erreur écartée (second avis) : {}", error.student);
+        return Ok(None);
+    }
+    Ok(Some(error))
+}
+
+// Réponse de l'IA pour le bilan (réussites et notions à revoir).
+#[derive(serde::Deserialize)]
+struct SummaryText {
+    strengths: Vec<String>,
+    to_review: Vec<String>,
+}
+
+// Bilan : `errors` vient des corrections faites au fil de la conversation (D34).
+async fn summarize(
+    ollama: &Ollama,
+    model: &str,
+    theme: &Theme,
+    history: &[ChatTurn],
+    errors: Vec<SummaryError>,
+) -> Result<ConversationSummary, AppError> {
+    let text: SummaryText = ollama
+        .chat_json(ChatRequest {
+            model,
+            system: &summary_system_prompt(theme, &errors),
+            turns: &[ChatTurn::user(format!(
+                "Conversation :\n{}",
+                transcript(history)
+            ))],
             schema: summary_schema(),
             temperature: 0.2, // bilan : on veut de la constance
         })
         .await?;
-
-    // Le modèle signale parfois des erreurs inexistantes : chacune est revérifiée.
-    let mut confirmed = Vec::new();
-    for error in summary.errors {
-        // 1. Contrôle par le code : "correction" identique à ma phrase (espaces, ponctuation,
-        //    kanji / kana mis à part) => pas une erreur.
-        if normalize_japanese(&error.student, knowledge)
-            == normalize_japanese(&error.correction, knowledge)
-        {
-            log::info!("Fausse erreur écartée (identique) : {}", error.student);
-            continue;
-        }
-        // 2. Second avis de l'IA, centré sur cette seule phrase.
-        if is_real_error(ollama, model, &conversation, &error).await? {
-            confirmed.push(error);
-        } else {
-            log::info!("Fausse erreur écartée (second avis) : {}", error.student);
-        }
-    }
-    summary.errors = confirmed;
-    Ok(summary)
+    Ok(ConversationSummary {
+        errors,
+        strengths: text.strengths,
+        to_review: text.to_review,
+    })
 }
 
 // Réponse du second avis.
@@ -447,6 +544,12 @@ pub(crate) async fn start_conversation(
     let theme = find_theme(theme_id.as_deref())?;
     let (knowledge, model) = context(pool.inner(), lesson_ids).await?;
     let message = next_message(ollama.inner(), &model, theme, &knowledge, &[]).await?;
+    // Journal (D36) : conversations relisibles pour diagnostiquer un bilan absurde.
+    log::info!(
+        "Conversation [{}] début. IA : {}",
+        theme.id,
+        message.japanese
+    );
     Ok(ConversationStart {
         theme_id: theme.id,
         theme_label: theme.label,
@@ -467,8 +570,14 @@ pub(crate) async fn translate_message(
     if text.trim().is_empty() {
         return Err(AppError::Validation("Rien à traduire."));
     }
-    let translator = settings::load(pool.inner()).await?.translation_model;
-    ollama.translate_ja_to_fr(&translator, text.trim()).await
+    let settings = settings::load(pool.inner()).await?;
+    to_french(
+        ollama.inner(),
+        &settings.ollama_model,
+        &settings.translation_model,
+        text.trim(),
+    )
+    .await
 }
 
 // `history` : tous les messages affichés (ceux de l'IA en japonais seulement), le mien en dernier.
@@ -483,9 +592,53 @@ pub(crate) async fn reply_conversation(
     let theme = find_theme(Some(&theme_id))?;
     let history = checked_history(history)?;
     let (knowledge, model) = context(pool.inner(), lesson_ids).await?;
-    next_message(ollama.inner(), &model, theme, &knowledge, &history).await
+    if let Some(mine) = history.last() {
+        log::info!("Conversation [{}] élève : {}", theme.id, mine.content);
+    }
+    let message = next_message(ollama.inner(), &model, theme, &knowledge, &history).await?;
+    log::info!("Conversation [{}] IA : {}", theme.id, message.japanese);
+    Ok(message)
 }
 
+// D35 : kanji de mon message absents de toute ma base (pas seulement des leçons choisies).
+// JS : invoke("check_my_message", { text }) => ["制"].
+#[tauri::command]
+pub(crate) async fn check_my_message(
+    pool: State<'_, SqlitePool>,
+    text: String,
+) -> Result<Vec<String>, AppError> {
+    let knowledge = items::find_knowledge(pool.inner(), &[]).await?;
+    Ok(my_unknown_kanji(&text, &knowledge))
+}
+
+// D34 : correction de mon dernier message, lancée en arrière-plan par l'écran juste après
+// l'envoi. Même `history` que reply_conversation. None = pas d'erreur.
+#[tauri::command]
+pub(crate) async fn review_conversation_message(
+    pool: State<'_, SqlitePool>,
+    ollama: State<'_, Ollama>,
+    lesson_ids: Option<Vec<i64>>,
+    theme_id: String,
+    history: Vec<ChatTurn>,
+) -> Result<Option<SummaryError>, AppError> {
+    let theme = find_theme(Some(&theme_id))?;
+    let history = checked_history(history)?;
+    let (knowledge, model) = context(pool.inner(), lesson_ids).await?;
+    let review = review_message(ollama.inner(), &model, theme, &knowledge, &history).await?;
+    match &review {
+        Some(e) => log::info!(
+            "Conversation [{}] erreur : {} => {} ({})",
+            theme.id,
+            e.student,
+            e.correction,
+            e.explanation
+        ),
+        None => log::info!("Conversation [{}] message juste", theme.id),
+    }
+    Ok(review)
+}
+
+// `errors` : les corrections renvoyées par review_conversation_message pendant la conversation.
 #[tauri::command]
 pub(crate) async fn end_conversation(
     pool: State<'_, SqlitePool>,
@@ -493,6 +646,7 @@ pub(crate) async fn end_conversation(
     lesson_ids: Option<Vec<i64>>,
     theme_id: String,
     history: Vec<ChatTurn>,
+    errors: Vec<SummaryError>,
 ) -> Result<ConversationSummary, AppError> {
     let theme = find_theme(Some(&theme_id))?;
     if !history.iter().any(|t| t.role == Role::User) {
@@ -500,8 +654,16 @@ pub(crate) async fn end_conversation(
             "Réponds au moins une fois avant de terminer.",
         ));
     }
-    let (knowledge, model) = context(pool.inner(), lesson_ids).await?;
-    summarize(ollama.inner(), &model, theme, &knowledge, &history).await
+    let (_, model) = context(pool.inner(), lesson_ids).await?;
+    let summary = summarize(ollama.inner(), &model, theme, &history, errors).await?;
+    log::info!(
+        "Conversation [{}] bilan : {} erreur(s), réussites {:?}, à revoir {:?}",
+        theme.id,
+        summary.errors.len(),
+        summary.strengths,
+        summary.to_review
+    );
+    Ok(summary)
 }
 
 #[cfg(test)]
@@ -579,6 +741,16 @@ mod tests {
             transcript(&history),
             "Toi : いらっしゃいませ\nÉlève : コーヒー ください"
         );
+    }
+
+    #[test]
+    fn kanji_hors_de_ma_base_dans_mon_message() {
+        // 飲 est connu (飲む) ; 先 et 制 non, 先 n'est signalé qu'une fois.
+        assert_eq!(
+            my_unknown_kanji("おちゃを飲みます。先制、先", &knowledge()),
+            vec!["先".to_string(), "制".to_string()]
+        );
+        assert!(my_unknown_kanji("コーヒー ください", &knowledge()).is_empty());
     }
 
     #[test]
@@ -672,7 +844,7 @@ mod tests {
                 turn(Role::Assistant, "しゅうまつ は なに を たべます か？"),
                 turn(Role::User, "すしを食べます。あなたは？"),
             ];
-            let summary = summarize(
+            let review = review_message(
                 &ollama,
                 &super::super::knowledge_prompt::test_model(),
                 theme,
@@ -681,7 +853,8 @@ mod tests {
             )
             .await
             .unwrap();
-            println!("ERREURS : {:?}", summary.errors);
+            println!("ERREUR : {review:?}");
+            assert!(review.is_none(), "fausse erreur : {review:?}");
         });
     }
 
@@ -702,16 +875,54 @@ mod tests {
                 turn(Role::Assistant, &first.japanese),
                 turn(Role::User, "コーヒー ひとつ を ください"),
             ];
+            // Correction de mon message, puis réponse de l'IA (comme l'écran, en parallèle).
+            let first_review = review_message(&ollama, model, theme, &knowledge(), &history)
+                .await
+                .unwrap();
+            println!("CORRECTION 1 : {first_review:?}");
             let second = next_message(&ollama, model, theme, &knowledge(), &history)
                 .await
                 .unwrap();
             println!("IA 2 : {second:?}");
             history.push(turn(Role::Assistant, &second.japanese));
             history.push(turn(Role::User, "おちゃ が おいしい です か"));
-            let summary = summarize(&ollama, model, theme, &knowledge(), &history)
+            let second_review = review_message(&ollama, model, theme, &knowledge(), &history)
+                .await
+                .unwrap();
+            println!("CORRECTION 2 : {second_review:?}");
+            let errors = first_review.into_iter().chain(second_review).collect();
+            let summary = summarize(&ollama, model, theme, &history, errors)
                 .await
                 .unwrap();
             println!("BILAN : {summary:?}");
+        });
+    }
+
+    // Cas signalés le 2026-11-25 (thème "Se présenter") : chaque message corrigé seul.
+    // Questions de l'IA reconstituées : la vraie conversation n'était pas enregistrée.
+    // cargo test -- --ignored essai_reel_presentation --nocapture
+    #[test]
+    #[ignore]
+    fn essai_reel_presentation() {
+        tauri::async_runtime::block_on(async {
+            let ollama = Ollama::new().unwrap();
+            let model = &super::super::knowledge_prompt::test_model();
+            let theme = find_theme(Some("introduction")).unwrap();
+            for (question, answer) in [
+                ("おはようございます。", "おはようございます先制。"),
+                ("はじめまして。わたし は たなか です。", "おなまえは？"),
+                ("おくに は どちら です か？", "フランス語です。"),
+                ("どこ に すんで います か？", "パリに積んでいま。"),
+            ] {
+                let history = [turn(Role::Assistant, question), turn(Role::User, answer)];
+                let review = review_message(&ollama, model, theme, &knowledge(), &history)
+                    .await
+                    .unwrap();
+                println!(
+                    "{question} / {answer}
+  => {review:?}"
+                );
+            }
         });
     }
 }

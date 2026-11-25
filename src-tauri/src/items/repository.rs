@@ -1,8 +1,24 @@
 // Accès SQL aux éléments. Renvoie des lignes brutes (`ItemRow`) et les erreurs sqlx telles quelles.
 
-use sqlx::{Executor, Sqlite, SqlitePool};
+use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
 
-use super::model::{CreateItemInput, ItemContent, ItemFilter, ItemRow};
+use super::model::{CreateItemInput, ItemContent, ItemFilter, ItemRow, clean_meanings};
+
+// Début commun des lectures d'un ItemRow. `meanings` : sens de la table item_meaning, en
+// tableau JSON dans l'ordre (`[]` pour la grammaire). La colonne item.meaning n'est pas lue :
+// c'est un texte dérivé (voir la migration 20261126000100).
+// Macro plutôt que constante : concat! n'accepte que des littéraux.
+macro_rules! select_item {
+    () => {
+        r#"
+        SELECT id, lesson_id, kind, active, kana, romaji, kanji, word_type,
+               title, explanation, example_jp, example_fr, created_at, updated_at,
+               (SELECT json_group_array(m.meaning ORDER BY m.position)
+                FROM item_meaning m WHERE m.item_id = item.id) AS meanings
+        FROM item
+        "#
+    };
+}
 
 // Valeurs des colonnes propres au type ; celles de l'autre type restent None (=> NULL,
 // exigé par le CHECK de la migration). Partagé par `insert` et `update`.
@@ -12,7 +28,8 @@ struct ContentColumns<'a> {
     kana: Option<&'a str>,
     romaji: Option<&'a str>,
     kanji: Option<&'a str>,
-    meaning: Option<&'a str>,
+    meaning: Option<String>, // texte dérivé des sens ("je; moi"), exigé par le CHECK
+    meanings: Vec<String>,   // sens nettoyés, écrits dans item_meaning
     word_type: Option<&'static str>,
     title: Option<&'a str>,
     explanation: Option<&'a str>,
@@ -24,24 +41,29 @@ fn content_columns(content: &ItemContent) -> ContentColumns<'_> {
             kana,
             romaji,
             kanji,
-            meaning,
+            meanings,
             word_type,
-        } => ContentColumns {
-            kind: "vocab",
-            kana: Some(kana.as_str()),
-            romaji: romaji.as_deref(),
-            kanji: kanji.as_deref(),
-            meaning: Some(meaning.as_str()),
-            word_type: word_type.map(|w| w.as_str()),
-            title: None,
-            explanation: None,
-        },
+        } => {
+            let meanings = clean_meanings(meanings);
+            ContentColumns {
+                kind: "vocab",
+                kana: Some(kana.as_str()),
+                romaji: romaji.as_deref(),
+                kanji: kanji.as_deref(),
+                meaning: Some(meanings.join("; ")),
+                meanings,
+                word_type: word_type.map(|w| w.as_str()),
+                title: None,
+                explanation: None,
+            }
+        }
         ItemContent::Grammar { title, explanation } => ContentColumns {
             kind: "grammar",
             kana: None,
             romaji: None,
             kanji: None,
             meaning: None,
+            meanings: Vec::new(),
             word_type: None,
             title: Some(title.as_str()),
             explanation: Some(explanation.as_str()),
@@ -69,21 +91,21 @@ pub(super) async fn find_all(
     pool: &SqlitePool,
     filter: &ItemFilter,
 ) -> Result<Vec<ItemRow>, sqlx::Error> {
-    sqlx::query_as::<_, ItemRow>(
+    sqlx::query_as::<_, ItemRow>(concat!(
+        select_item!(),
         r#"
-        SELECT id, lesson_id, kind, active, kana, romaji, kanji, meaning, word_type,
-               title, explanation, example_jp, example_fr, created_at, updated_at
-        FROM item
         WHERE (?1 IS NULL OR lesson_id = ?1)
           AND (?2 IS NULL OR kind = ?2)
           AND (?3 IS NULL OR active = ?3)
           AND (?4 IS NULL
                OR kana LIKE ?4 ESCAPE '\' OR romaji LIKE ?4 ESCAPE '\'
-               OR kanji LIKE ?4 ESCAPE '\' OR meaning LIKE ?4 ESCAPE '\'
+               OR kanji LIKE ?4 ESCAPE '\'
+               OR EXISTS (SELECT 1 FROM item_meaning m
+                          WHERE m.item_id = item.id AND m.meaning LIKE ?4 ESCAPE '\')
                OR title LIKE ?4 ESCAPE '\' OR explanation LIKE ?4 ESCAPE '\')
         ORDER BY created_at DESC, id DESC
-        "#,
-    )
+        "#
+    ))
     .bind(filter.lesson_id)
     .bind(filter.kind.map(|k| k.as_str()))
     .bind(filter.active)
@@ -92,24 +114,53 @@ pub(super) async fn find_all(
     .await
 }
 
-// Insère un élément et renvoie la ligne enregistrée.
-// `executor` : le pool, ou une connexion de transaction (voir commands.rs).
-pub(super) async fn insert<'c, E>(
-    executor: E,
-    input: &CreateItemInput,
-) -> Result<ItemRow, sqlx::Error>
+// Un élément et ses sens ; None si l'id n'existe pas.
+async fn find_by_id<'c, E>(executor: E, id: i64) -> Result<Option<ItemRow>, sqlx::Error>
 where
     E: Executor<'c, Database = Sqlite>,
 {
+    sqlx::query_as::<_, ItemRow>(concat!(select_item!(), "WHERE id = ?"))
+        .bind(id)
+        .fetch_optional(executor)
+        .await
+}
+
+// Remplace les sens d'un élément par `meanings` (aucun pour la grammaire).
+async fn replace_meanings(
+    conn: &mut SqliteConnection,
+    item_id: i64,
+    meanings: &[String],
+) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM item_meaning WHERE item_id = ?")
+        .bind(item_id)
+        .execute(&mut *conn)
+        .await?;
+    // (0..).zip : numérote les sens 0, 1, 2... directement en i64.
+    for (position, meaning) in (0_i64..).zip(meanings) {
+        sqlx::query("INSERT INTO item_meaning (item_id, position, meaning) VALUES (?, ?, ?)")
+            .bind(item_id)
+            .bind(position)
+            .bind(meaning)
+            .execute(&mut *conn)
+            .await?;
+    }
+    Ok(())
+}
+
+// Insère un élément et ses sens, puis renvoie la ligne enregistrée.
+// Plusieurs requêtes : à appeler dans une transaction (voir commands.rs).
+pub(super) async fn insert(
+    conn: &mut SqliteConnection,
+    input: &CreateItemInput,
+) -> Result<ItemRow, sqlx::Error> {
     let columns = content_columns(&input.content);
 
-    sqlx::query_as::<_, ItemRow>(
+    let id: i64 = sqlx::query_scalar(
         r#"
         INSERT INTO item (lesson_id, kind, kana, romaji, kanji, meaning, word_type,
                           title, explanation, example_jp, example_fr)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        RETURNING id, lesson_id, kind, active, kana, romaji, kanji, meaning, word_type,
-                  title, explanation, example_jp, example_fr, created_at, updated_at
+        RETURNING id
         "#,
     )
     .bind(input.lesson_id)
@@ -117,36 +168,39 @@ where
     .bind(columns.kana)
     .bind(columns.romaji)
     .bind(columns.kanji)
-    .bind(columns.meaning)
+    .bind(&columns.meaning)
     .bind(columns.word_type)
     .bind(columns.title)
     .bind(columns.explanation)
     .bind(&input.example_jp)
     .bind(&input.example_fr)
-    .fetch_one(executor)
-    .await
+    .fetch_one(&mut *conn)
+    .await?;
+
+    replace_meanings(conn, id, &columns.meanings).await?;
+    // La ligne vient d'être insérée sur la même connexion : elle existe forcément.
+    find_by_id(&mut *conn, id)
+        .await?
+        .ok_or(sqlx::Error::RowNotFound)
 }
 
-// Remplace tous les champs d'un élément (le type peut changer) ; None si l'id n'existe pas.
-pub(super) async fn update<'c, E>(
-    executor: E,
+// Remplace tous les champs d'un élément et ses sens (le type peut changer) ; None si l'id
+// n'existe pas. Plusieurs requêtes : à appeler dans une transaction.
+pub(super) async fn update(
+    conn: &mut SqliteConnection,
     id: i64,
     input: &CreateItemInput,
-) -> Result<Option<ItemRow>, sqlx::Error>
-where
-    E: Executor<'c, Database = Sqlite>,
-{
+) -> Result<Option<ItemRow>, sqlx::Error> {
     let columns = content_columns(&input.content);
 
-    sqlx::query_as::<_, ItemRow>(
+    let updated: Option<i64> = sqlx::query_scalar(
         r#"
         UPDATE item
         SET lesson_id = ?, kind = ?, kana = ?, romaji = ?, kanji = ?, meaning = ?,
             word_type = ?, title = ?, explanation = ?, example_jp = ?, example_fr = ?,
             updated_at = datetime('now')
         WHERE id = ?
-        RETURNING id, lesson_id, kind, active, kana, romaji, kanji, meaning, word_type,
-                  title, explanation, example_jp, example_fr, created_at, updated_at
+        RETURNING id
         "#,
     )
     .bind(input.lesson_id)
@@ -154,15 +208,22 @@ where
     .bind(columns.kana)
     .bind(columns.romaji)
     .bind(columns.kanji)
-    .bind(columns.meaning)
+    .bind(&columns.meaning)
     .bind(columns.word_type)
     .bind(columns.title)
     .bind(columns.explanation)
     .bind(&input.example_jp)
     .bind(&input.example_fr)
     .bind(id)
-    .fetch_optional(executor)
-    .await
+    .fetch_optional(&mut *conn)
+    .await?;
+    if updated.is_none() {
+        return Ok(None);
+    }
+
+    // Devenu grammaire : la liste vide efface les anciens sens.
+    replace_meanings(conn, id, &columns.meanings).await?;
+    find_by_id(&mut *conn, id).await
 }
 
 // Active ou désactive un élément ; None si l'id n'existe pas.
@@ -171,23 +232,21 @@ pub(super) async fn set_active(
     id: i64,
     active: bool,
 ) -> Result<Option<ItemRow>, sqlx::Error> {
-    sqlx::query_as::<_, ItemRow>(
-        r#"
-        UPDATE item
-        SET active = ?, updated_at = datetime('now')
-        WHERE id = ?
-        RETURNING id, lesson_id, kind, active, kana, romaji, kanji, meaning, word_type,
-                  title, explanation, example_jp, example_fr, created_at, updated_at
-        "#,
-    )
-    .bind(active)
-    .bind(id)
-    .fetch_optional(pool)
-    .await
+    let result =
+        sqlx::query("UPDATE item SET active = ?, updated_at = datetime('now') WHERE id = ?")
+            .bind(active)
+            .bind(id)
+            .execute(pool)
+            .await?;
+    if result.rows_affected() == 0 {
+        return Ok(None);
+    }
+    find_by_id(pool, id).await
 }
 
 // Vrai si un autre mot identique existe déjà : mêmes kana, mêmes kanji (ou aucun des deux) et même
-// traduction (décision D21). Les homonymes aux kanji différents (橋 / 箸) restent permis.
+// traduction (décision D21). Depuis D43, "même traduction" = les mêmes sens, dans n'importe quel
+// ordre. Les homonymes aux kanji différents (橋 / 箸) restent permis.
 // `exclude_id` : l'élément en cours de modification, qui ne compte pas comme doublon de lui-même.
 pub(super) async fn vocab_duplicate_exists<'c, E>(
     executor: E,
@@ -200,29 +259,37 @@ where
     let ItemContent::Vocab {
         kana,
         kanji,
-        meaning,
+        meanings,
         ..
     } = content
     else {
         return Ok(false); // la grammaire n'est pas concernée
     };
-    let count: i64 = sqlx::query_scalar(
+    // Sens de chaque mot de mêmes kana et kanji. Json<T> : décode le tableau JSON renvoyé.
+    let candidates: Vec<sqlx::types::Json<Vec<String>>> = sqlx::query_scalar(
         r#"
-        SELECT COUNT(*) FROM item
+        SELECT (SELECT json_group_array(m.meaning) FROM item_meaning m WHERE m.item_id = item.id)
+        FROM item
         WHERE kind = 'vocab'
           AND trim(kana) = ?1
           AND COALESCE(trim(kanji), '') = ?2
-          AND trim(meaning) = ?3
-          AND (?4 IS NULL OR id <> ?4)
+          AND (?3 IS NULL OR id <> ?3)
         "#,
     )
     .bind(kana.trim())
     .bind(kanji.as_deref().map(str::trim).unwrap_or(""))
-    .bind(meaning.trim())
     .bind(exclude_id)
-    .fetch_one(executor)
+    .fetch_all(executor)
     .await?;
-    Ok(count > 0)
+
+    // Comparaison sans tenir compte de l'ordre : on trie les deux listes.
+    let mut wanted = clean_meanings(meanings);
+    wanted.sort();
+    Ok(candidates.into_iter().any(|candidate| {
+        let mut existing = candidate.0;
+        existing.sort();
+        existing == wanted
+    }))
 }
 
 // Supprime un élément ; false si l'id n'existe pas.
@@ -321,7 +388,7 @@ mod tests {
                 kana: kana.into(),
                 romaji: None,
                 kanji: None,
-                meaning: meaning.into(),
+                meanings: vec![meaning.into()],
                 word_type: None,
             },
             example_jp: None,
@@ -364,7 +431,9 @@ mod tests {
             grammar(1, "〜ています"),
             vocab(2, "のむ", "boire"),
         ] {
-            super::insert(&pool, &input).await.unwrap();
+            super::insert(&mut pool.acquire().await.unwrap(), &input)
+                .await
+                .unwrap();
         }
         pool
     }
@@ -438,10 +507,18 @@ mod tests {
     fn recherche_echappe_les_caracteres_speciaux_de_like() {
         tauri::async_runtime::block_on(async {
             let pool = test_pool().await;
-            super::insert(&pool, &vocab(1, "a", "100%")).await.unwrap(); // id 1
-            super::insert(&pool, &vocab(1, "b", "1000")).await.unwrap(); // id 2
-            super::insert(&pool, &vocab(1, "c", "x_y")).await.unwrap(); // id 3
-            super::insert(&pool, &vocab(1, "d", "xzy")).await.unwrap(); // id 4
+            super::insert(&mut pool.acquire().await.unwrap(), &vocab(1, "a", "100%"))
+                .await
+                .unwrap(); // id 1
+            super::insert(&mut pool.acquire().await.unwrap(), &vocab(1, "b", "1000"))
+                .await
+                .unwrap(); // id 2
+            super::insert(&mut pool.acquire().await.unwrap(), &vocab(1, "c", "x_y"))
+                .await
+                .unwrap(); // id 3
+            super::insert(&mut pool.acquire().await.unwrap(), &vocab(1, "d", "xzy"))
+                .await
+                .unwrap(); // id 4
             let search = |s: &str| ItemFilter {
                 search: Some(s.into()),
                 ..Default::default()
@@ -456,10 +533,14 @@ mod tests {
     fn modifier_peut_changer_le_type_et_vide_les_anciennes_colonnes() {
         tauri::async_runtime::block_on(async {
             let pool = seeded_pool().await;
-            let row = super::update(&pool, 1, &grammar(2, "forme て"))
-                .await
-                .unwrap()
-                .unwrap();
+            let row = super::update(
+                &mut pool.acquire().await.unwrap(),
+                1,
+                &grammar(2, "forme て"),
+            )
+            .await
+            .unwrap()
+            .unwrap();
             let item = json(row);
             assert_eq!(item["lesson_id"], 2);
             assert_eq!(item["content"]["kind"], "grammar");
@@ -483,7 +564,7 @@ mod tests {
         tauri::async_runtime::block_on(async {
             let pool = seeded_pool().await;
             assert!(
-                super::update(&pool, 999, &grammar(1, "x"))
+                super::update(&mut pool.acquire().await.unwrap(), 999, &grammar(1, "x"))
                     .await
                     .unwrap()
                     .is_none()
@@ -501,11 +582,15 @@ mod tests {
     fn lecon_inconnue_viole_la_cle_etrangere() {
         tauri::async_runtime::block_on(async {
             let pool = seeded_pool().await;
-            let insert_error = super::insert(&pool, &grammar(999, "x")).await.unwrap_err();
+            let insert_error =
+                super::insert(&mut pool.acquire().await.unwrap(), &grammar(999, "x"))
+                    .await
+                    .unwrap_err();
             assert!(is_foreign_key_violation(&insert_error));
-            let update_error = super::update(&pool, 1, &grammar(999, "x"))
-                .await
-                .unwrap_err();
+            let update_error =
+                super::update(&mut pool.acquire().await.unwrap(), 1, &grammar(999, "x"))
+                    .await
+                    .unwrap_err();
             assert!(is_foreign_key_violation(&update_error));
         });
     }
@@ -539,6 +624,166 @@ mod tests {
                     .await
                     .unwrap()
             );
+        });
+    }
+
+    // Sens tels que renvoyés au front pour l'élément `id`.
+    async fn meanings_of(pool: &SqlitePool, id: i64) -> serde_json::Value {
+        let row = super::find_by_id(pool, id).await.unwrap().unwrap();
+        json(row)["content"]["meanings"].clone()
+    }
+
+    #[test]
+    fn plusieurs_sens_enregistres_dans_l_ordre_et_nettoyes() {
+        tauri::async_runtime::block_on(async {
+            let pool = test_pool().await;
+            let mut input = vocab(1, "わたし", "je");
+            if let ItemContent::Vocab { meanings, .. } = &mut input.content {
+                *meanings = vec![" je ".into(), "".into(), "moi".into(), "je".into()];
+            }
+            let row = super::insert(&mut pool.acquire().await.unwrap(), &input)
+                .await
+                .unwrap();
+            assert_eq!(
+                json(row)["content"]["meanings"],
+                serde_json::json!(["je", "moi"])
+            );
+            // Texte dérivé, gardé pour le CHECK de la table item.
+            let text: String = sqlx::query_scalar("SELECT meaning FROM item WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(text, "je; moi");
+        });
+    }
+
+    #[test]
+    fn modifier_remplace_les_sens_et_la_grammaire_n_en_a_aucun() {
+        tauri::async_runtime::block_on(async {
+            let pool = seeded_pool().await; // 1 = たべる (manger)
+            super::update(
+                &mut pool.acquire().await.unwrap(),
+                1,
+                &vocab(1, "たべる", "manger; dévorer"),
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                meanings_of(&pool, 1).await,
+                serde_json::json!(["manger", "dévorer"])
+            );
+
+            super::update(&mut pool.acquire().await.unwrap(), 1, &grammar(1, "t"))
+                .await
+                .unwrap();
+            let left: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM item_meaning WHERE item_id = 1")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(left, 0);
+        });
+    }
+
+    #[test]
+    fn recherche_dans_chaque_sens_et_suppression_en_cascade() {
+        tauri::async_runtime::block_on(async {
+            let pool = test_pool().await;
+            super::insert(
+                &mut pool.acquire().await.unwrap(),
+                &vocab(1, "わたし", "je; moi"),
+            )
+            .await
+            .unwrap();
+            let search = ItemFilter {
+                search: Some("moi".into()),
+                ..Default::default()
+            };
+            assert_eq!(ids(&pool, search).await, vec![1]); // deuxième sens trouvé
+
+            assert!(super::delete(&pool, 1).await.unwrap());
+            let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM item_meaning")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(left, 0);
+        });
+    }
+
+    #[test]
+    fn doublon_compare_les_sens_sans_tenir_compte_de_l_ordre() {
+        tauri::async_runtime::block_on(async {
+            let pool = test_pool().await;
+            super::insert(
+                &mut pool.acquire().await.unwrap(),
+                &vocab(1, "わたし", "je; moi"),
+            )
+            .await
+            .unwrap();
+            let exists = |meaning: &'static str| {
+                let pool = pool.clone();
+                async move {
+                    super::vocab_duplicate_exists(&pool, &vocab(1, "わたし", meaning).content, None)
+                        .await
+                        .unwrap()
+                }
+            };
+            assert!(exists("moi; je").await);
+            assert!(!exists("je").await); // un seul des deux sens : pas un doublon
+            assert!(!exists("je; moi; nous").await);
+        });
+    }
+
+    #[test]
+    fn la_migration_decoupe_les_anciennes_traductions() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect("sqlite::memory:")
+                .await
+                .unwrap();
+            // Base dans l'état d'avant D43 : toutes les migrations sauf celle des sens.
+            let migrator = sqlx::migrate!("./migrations");
+            for migration in migrator.iter().filter(|m| m.version < 20261126000100) {
+                sqlx::raw_sql(migration.sql.clone())
+                    .execute(&pool)
+                    .await
+                    .unwrap();
+            }
+            sqlx::raw_sql(
+                "INSERT INTO lesson (title, date) VALUES ('L1', '2026-11-18');
+                 INSERT INTO item (lesson_id, kind, kana, meaning) VALUES (1, 'vocab', 'わたし', 'je; moi');
+                 INSERT INTO item (lesson_id, kind, kana, meaning) VALUES (1, 'vocab', 'た', ' a ;; b;a; ');
+                 INSERT INTO item (lesson_id, kind, kana, meaning) VALUES (1, 'vocab', 'み', 'voir');
+                 INSERT INTO item (lesson_id, kind, kana, meaning) VALUES (1, 'vocab', 'の', ' ; ');
+                 INSERT INTO item (lesson_id, kind, title, explanation) VALUES (1, 'grammar', 't', 'e');",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            sqlx::raw_sql(include_str!(
+                "../../migrations/20261126000100_item_meanings.sql"
+            ))
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            assert_eq!(
+                meanings_of(&pool, 1).await,
+                serde_json::json!(["je", "moi"])
+            );
+            assert_eq!(meanings_of(&pool, 2).await, serde_json::json!(["a", "b"]));
+            assert_eq!(meanings_of(&pool, 3).await, serde_json::json!(["voir"]));
+            // Que des séparateurs : le texte d'origine est gardé plutôt que de perdre le mot.
+            assert_eq!(meanings_of(&pool, 4).await, serde_json::json!([" ; "]));
+            // Grammaire : aucun sens, et pas de champ `meanings` côté front.
+            assert!(meanings_of(&pool, 5).await.is_null());
+            let text: String = sqlx::query_scalar("SELECT meaning FROM item WHERE id = 2")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(text, "a; b");
         });
     }
 

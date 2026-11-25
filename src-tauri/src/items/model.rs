@@ -53,7 +53,7 @@ pub(crate) enum ItemContent {
         kana: String,
         romaji: Option<String>,
         kanji: Option<String>,
-        meaning: String,
+        meanings: Vec<String>, // sens français, dans l'ordre (au moins un, D43)
         word_type: Option<WordType>,
     },
     Grammar {
@@ -86,7 +86,6 @@ pub(super) struct ItemRow {
     kana: Option<String>,
     romaji: Option<String>,
     kanji: Option<String>,
-    meaning: Option<String>,
     word_type: Option<String>,
     title: Option<String>,
     explanation: Option<String>,
@@ -94,6 +93,10 @@ pub(super) struct ItemRow {
     example_fr: Option<String>,
     created_at: String,
     updated_at: String,
+    // Lu dans la table item_meaning : tableau JSON (["je","moi"]), vide pour la grammaire.
+    // #[sqlx(json)] : sqlx décode le texte JSON en Vec<String>.
+    #[sqlx(json)]
+    meanings: Vec<String>,
 }
 
 impl ItemRow {
@@ -110,7 +113,7 @@ impl ItemRow {
                 kana: self.kana.ok_or(AppError::InvalidData("kana"))?,
                 romaji: self.romaji,
                 kanji: self.kanji,
-                meaning: self.meaning.ok_or(AppError::InvalidData("meaning"))?,
+                meanings: non_empty_meanings(self.meanings)?,
                 // None reste None ; un texte inconnu est une erreur, pas un None silencieux.
                 // transpose : Option<Result<T, E>> -> Result<Option<T>, E>, pour pouvoir utiliser `?`.
                 word_type: self
@@ -138,6 +141,31 @@ impl ItemRow {
             updated_at: self.updated_at,
         })
     }
+}
+
+// Un mot sans aucun sens est une donnée invalide (la migration et validate() l'empêchent).
+fn non_empty_meanings(meanings: Vec<String>) -> Result<Vec<String>, AppError> {
+    if meanings.is_empty() {
+        return Err(AppError::InvalidData("meanings"));
+    }
+    Ok(meanings)
+}
+
+// Sens prêts à enregistrer : un sens tapé "je; moi" est découpé (ancienne habitude de saisie,
+// même règle que la migration), espaces retirés, sens vides et doublons ignorés.
+pub(super) fn clean_meanings(meanings: &[String]) -> Vec<String> {
+    let mut cleaned: Vec<String> = Vec::new();
+    for meaning in meanings
+        .iter()
+        .flat_map(|m| m.split(';'))
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+    {
+        if !cleaned.iter().any(|c| c == meaning) {
+            cleaned.push(meaning.to_string());
+        }
+    }
+    cleaned
 }
 
 // Type d'élément, pour filtrer la liste.
@@ -184,12 +212,12 @@ impl CreateItemInput {
     // Refuse les champs obligatoires vides (espaces seuls compris).
     pub(super) fn validate(&self) -> Result<(), AppError> {
         match &self.content {
-            ItemContent::Vocab { kana, meaning, .. } => {
+            ItemContent::Vocab { kana, meanings, .. } => {
                 if kana.trim().is_empty() {
                     return Err(AppError::Validation("Le kana ne peut pas être vide"));
                 }
-                if meaning.trim().is_empty() {
-                    return Err(AppError::Validation("La traduction ne peut pas être vide"));
+                if clean_meanings(meanings).is_empty() {
+                    return Err(AppError::Validation("Il faut au moins une traduction"));
                 }
             }
             ItemContent::Grammar { title, explanation } => {
@@ -209,7 +237,7 @@ impl CreateItemInput {
 
 #[cfg(test)]
 mod tests {
-    use super::{ItemContent, ItemRow, WordType};
+    use super::{ItemContent, ItemRow, WordType, clean_meanings};
     use crate::error::AppError;
 
     // Ligne de vocabulaire valide, à modifier selon le cas testé.
@@ -222,7 +250,6 @@ mod tests {
             kana: Some("たべる".into()),
             romaji: None,
             kanji: None,
-            meaning: Some("manger".into()),
             word_type: Some("ru_verb".into()),
             title: None,
             explanation: None,
@@ -230,6 +257,7 @@ mod tests {
             example_fr: None,
             created_at: "2026-11-22 00:00:00".into(),
             updated_at: "2026-11-22 00:00:00".into(),
+            meanings: vec!["manger".into()],
         }
     }
 
@@ -302,13 +330,32 @@ mod tests {
     #[test]
     fn champ_obligatoire_absent_est_une_erreur() {
         let row = ItemRow {
-            meaning: None,
+            kana: None,
             ..vocab_row()
         };
         assert!(matches!(
             row.into_item(),
-            Err(AppError::InvalidData("meaning"))
+            Err(AppError::InvalidData("kana"))
         ));
+    }
+
+    #[test]
+    fn mot_sans_sens_est_une_erreur() {
+        let row = ItemRow {
+            meanings: Vec::new(),
+            ..vocab_row()
+        };
+        assert!(matches!(
+            row.into_item(),
+            Err(AppError::InvalidData("meanings"))
+        ));
+    }
+
+    #[test]
+    fn sens_nettoyes_decoupes_et_dedoublonnes() {
+        let input: Vec<String> = vec![" je; moi ".into(), "".into(), "  ".into(), "moi".into()];
+        assert_eq!(clean_meanings(&input), ["je", "moi"]);
+        assert!(clean_meanings(&[" ; ".into()]).is_empty());
     }
 }
 
@@ -328,7 +375,27 @@ mod deserialization_tests {
         // Champ de grammaire glissé dans un vocabulaire.
         let input = r#"{"lesson_id": 1, "example_jp": null, "example_fr": null,
             "content": {"kind": "vocab", "kana": "た", "romaji": null, "kanji": null,
-                        "meaning": "x", "word_type": null, "title": "intrus"}}"#;
+                        "meanings": ["x"], "word_type": null, "title": "intrus"}}"#;
         assert!(serde_json::from_str::<CreateItemInput>(input).is_err());
+        // L'ancien champ texte "meaning" n'est plus accepté.
+        let old = r#"{"lesson_id": 1, "example_jp": null, "example_fr": null,
+            "content": {"kind": "vocab", "kana": "た", "romaji": null, "kanji": null,
+                        "meaning": "x", "word_type": null}}"#;
+        assert!(serde_json::from_str::<CreateItemInput>(old).is_err());
+    }
+
+    #[test]
+    fn au_moins_un_sens_exige() {
+        let input = |meanings: &str| {
+            serde_json::from_str::<CreateItemInput>(&format!(
+                r#"{{"lesson_id": 1, "example_jp": null, "example_fr": null,
+                    "content": {{"kind": "vocab", "kana": "た", "romaji": null, "kanji": null,
+                                "meanings": {meanings}, "word_type": null}}}}"#
+            ))
+            .unwrap()
+        };
+        assert!(input("[]").validate().is_err());
+        assert!(input(r#"["  ", ";"]"#).validate().is_err());
+        assert!(input(r#"["", "je"]"#).validate().is_ok());
     }
 }

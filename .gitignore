@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Copies de travail temporaires (worktrees)
+.claude/worktrees/

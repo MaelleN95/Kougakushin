@@ -7,6 +7,7 @@ import type { LessonGroup } from "../lessonGroups";
 import type { Item, ItemContent, ItemInput, ItemKind, WordType } from "../types";
 import { emptyToNull } from "../utils";
 import LessonOptions from "./LessonOptions";
+import MeaningsField from "./MeaningsField";
 
 // Record<K, V> : un objet qui a exactement une valeur V pour chaque clé K.
 // Si on ajoute un WordType sans libellé, tsc refuse de compiler.
@@ -45,7 +46,7 @@ export default function ItemForm({
   const [kana, setKana] = useState(vocab?.kana ?? "");
   const [romaji, setRomaji] = useState(vocab?.romaji ?? "");
   const [kanji, setKanji] = useState(vocab?.kanji ?? "");
-  const [meaning, setMeaning] = useState(vocab?.meaning ?? "");
+  const [meanings, setMeanings] = useState<string[]>(vocab?.meanings ?? [""]);
   const [wordType, setWordType] = useState<WordType | "">(vocab?.word_type ?? "");
   const [title, setTitle] = useState(grammar?.title ?? "");
   const [explanation, setExplanation] = useState(grammar?.explanation ?? "");
@@ -83,7 +84,7 @@ export default function ItemForm({
             kana: kana.trim(),
             romaji: emptyToNull(romaji),
             kanji: emptyToNull(kanji),
-            meaning: meaning.trim(),
+            meanings, // nettoyés par Rust (espaces, sens vides, doublons)
             word_type: wordType === "" ? null : wordType,
           }
         : { kind: "grammar", title: title.trim(), explanation: explanation.trim() };
@@ -100,7 +101,7 @@ export default function ItemForm({
     setKana("");
     setRomaji("");
     setKanji("");
-    setMeaning("");
+    setMeanings([""]);
     setWordType("");
     setTitle("");
     setExplanation("");
@@ -159,12 +160,7 @@ export default function ItemForm({
               value={kana}
               onChange={(e) => handleKanaChange(e.target.value)}
             />
-            <input
-              className="field"
-              placeholder="Traduction (sens séparés par ;)"
-              value={meaning}
-              onChange={(e) => setMeaning(e.target.value)}
-            />
+            <MeaningsField meanings={meanings} onChange={setMeanings} />
             <input
               className="field"
               placeholder="Romaji (remplit les kana)"

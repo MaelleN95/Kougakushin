@@ -43,7 +43,7 @@ Deux types seulement en V1 :
 | Kana | oui | ex. `たべる` |
 | Romaji | non | généré automatiquement depuis les kana, modifiable |
 | Kanji | non | ajoutable plus tard sur la même fiche (`食べる`) |
-| Traduction française | oui | plusieurs sens séparés par `;` |
+| Traduction française | oui | un ou plusieurs sens, un champ par sens (liste en base, D43) |
 | Type | non | nom / verbe-ru / verbe-u / verbe irrégulier / adj-i / adj-na / autre |
 | Exemple + traduction | non | |
 

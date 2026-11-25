@@ -8,7 +8,17 @@ use crate::particles::{self, KnownParticleUsage};
 pub(crate) struct KnownWord {
     pub(crate) kana: String,
     pub(crate) kanji: Option<String>,
-    pub(crate) meaning: String,
+    // Sens dans l'ordre (table item_meaning), lus en tableau JSON.
+    #[sqlx(json)]
+    pub(crate) meanings: Vec<String>,
+}
+
+// Sens d'un mot en tableau JSON, dans l'ordre ; `i` = alias de la table item.
+macro_rules! meanings_json {
+    () => {
+        "(SELECT json_group_array(m.meaning ORDER BY m.position)
+          FROM item_meaning m WHERE m.item_id = i.id) AS meanings"
+    };
 }
 
 #[derive(Debug, Clone, PartialEq, sqlx::FromRow)]
@@ -45,14 +55,16 @@ pub(crate) async fn find_knowledge(
 ) -> Result<Knowledge, sqlx::Error> {
     let lessons = lessons_json(lesson_ids);
 
-    let words = sqlx::query_as::<_, KnownWord>(
+    let words = sqlx::query_as::<_, KnownWord>(concat!(
+        "SELECT i.kana, i.kanji, ",
+        meanings_json!(),
         r#"
-        SELECT kana, kanji, meaning FROM item
-        WHERE kind = 'vocab' AND active = 1
-          AND (?1 IS NULL OR lesson_id IN (SELECT value FROM json_each(?1)))
-        ORDER BY id
-        "#,
-    )
+        FROM item i
+        WHERE i.kind = 'vocab' AND i.active = 1
+          AND (?1 IS NULL OR i.lesson_id IN (SELECT value FROM json_each(?1)))
+        ORDER BY i.id
+        "#
+    ))
     .bind(&lessons)
     .fetch_all(pool)
     .await?;
@@ -71,10 +83,12 @@ pub(crate) async fn find_knowledge(
 
     // Priorité (SPEC.md 3.4) : parmi les 20 mots les plus oubliés (lapses) puis les plus récents,
     // 3 au hasard ; le hasard varie aussi les phrases d'un exercice à l'autre.
-    let focus = sqlx::query_as::<_, KnownWord>(
+    let focus = sqlx::query_as::<_, KnownWord>(concat!(
         r#"
-        SELECT kana, kanji, meaning FROM (
-            SELECT i.kana, i.kanji, i.meaning, i.id,
+        SELECT kana, kanji, meanings FROM (
+            SELECT i.kana, i.kanji, i.id, "#,
+        meanings_json!(),
+        r#",
                    COALESCE((SELECT MAX(c.lapses) FROM card c WHERE c.item_id = i.id), 0) AS lapses
             FROM item i
             WHERE i.kind = 'vocab' AND i.active = 1
@@ -84,8 +98,8 @@ pub(crate) async fn find_knowledge(
         )
         ORDER BY random()
         LIMIT 3
-        "#,
-    )
+        "#
+    ))
     .bind(&lessons)
     .fetch_all(pool)
     .await?;
@@ -119,7 +133,9 @@ mod tests {
                  INSERT INTO item (lesson_id, kind, kana, kanji, meaning) VALUES (1, 'vocab', 'たべる', '食べる', 'manger');
                  INSERT INTO item (lesson_id, kind, active, kana, meaning) VALUES (1, 'vocab', 0, 'のむ', 'boire');
                  INSERT INTO item (lesson_id, kind, kana, meaning) VALUES (2, 'vocab', 'いく', 'aller');
-                 INSERT INTO item (lesson_id, kind, title, explanation) VALUES (2, 'grammar', 'は', 'thème');",
+                 INSERT INTO item (lesson_id, kind, title, explanation) VALUES (2, 'grammar', 'は', 'thème');
+                 INSERT INTO item_meaning (item_id, position, meaning)
+                     VALUES (1, 0, 'manger'), (2, 0, 'boire'), (3, 0, 'aller'), (3, 1, 'partir');",
             )
             .execute(&pool)
             .await
@@ -135,6 +151,7 @@ mod tests {
             assert_eq!(lesson_1.words.len(), 1);
             assert_eq!(lesson_1.words[0].kanji.as_deref(), Some("食べる"));
             assert!(lesson_1.grammar.is_empty());
+            assert_eq!(all.words[1].meanings, ["aller", "partir"]); // sens dans l'ordre
 
             // Particules : rien de coché au départ, puis un emploi de に.
             assert!(all.particles.is_empty());

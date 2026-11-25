@@ -51,7 +51,7 @@ export type ItemContent =
       kana: string;
       romaji: string | null;
       kanji: string | null;
-      meaning: string;
+      meanings: string[]; // sens français dans l'ordre, au moins un (D43)
       word_type: WordType | null;
     }
   | {
@@ -98,7 +98,7 @@ export type ReviewCard = {
   kana: string;
   romaji: string | null;
   kanji: string | null;
-  meaning: string;
+  meanings: string[]; // au moins un
   example_jp: string | null;
   example_fr: string | null;
 };

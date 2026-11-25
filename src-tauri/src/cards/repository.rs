@@ -20,7 +20,9 @@ pub(super) async fn find_to_review(
     sqlx::query_as::<_, SessionRow>(
         r#"
         SELECT c.id AS card_id, c.direction, c.state,
-               i.kana, i.romaji, i.kanji, i.meaning, i.example_jp, i.example_fr
+               i.kana, i.romaji, i.kanji, i.example_jp, i.example_fr,
+               (SELECT json_group_array(m.meaning ORDER BY m.position)
+                FROM item_meaning m WHERE m.item_id = i.id) AS meanings
         FROM card c
         JOIN item i ON i.id = c.item_id
         WHERE i.active = 1
@@ -47,7 +49,9 @@ pub(super) async fn find_new(
     sqlx::query_as::<_, SessionRow>(
         r#"
         SELECT c.id AS card_id, c.direction, c.state,
-               i.kana, i.romaji, i.kanji, i.meaning, i.example_jp, i.example_fr
+               i.kana, i.romaji, i.kanji, i.example_jp, i.example_fr,
+               (SELECT json_group_array(m.meaning ORDER BY m.position)
+                FROM item_meaning m WHERE m.item_id = i.id) AS meanings
         FROM card c
         JOIN item i ON i.id = c.item_id
         WHERE i.active = 1
@@ -229,7 +233,7 @@ mod tests {
             kana: "た".into(),
             romaji: None,
             kanji: kanji.map(String::from),
-            meaning: "x".into(),
+            meanings: vec!["x".into()],
             word_type: None,
         }
     }

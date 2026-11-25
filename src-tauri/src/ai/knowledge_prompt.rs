@@ -192,9 +192,10 @@ pub(super) fn knowledge_rules(knowledge: &Knowledge) -> String {
     let vocabulary: Vec<String> = knowledge
         .words
         .iter()
+        // Plusieurs sens séparés par "; " : "- わたし : je; moi".
         .map(|w| match &w.kanji {
-            Some(kanji) => format!("- {} ({kanji}) : {}", w.kana, w.meaning),
-            None => format!("- {} : {}", w.kana, w.meaning),
+            Some(kanji) => format!("- {} ({kanji}) : {}", w.kana, w.meanings.join("; ")),
+            None => format!("- {} : {}", w.kana, w.meanings.join("; ")),
         })
         .collect();
     let grammar: Vec<String> = knowledge
@@ -302,7 +303,7 @@ mod tests {
         KnownWord {
             kana: kana.into(),
             kanji: kanji.map(String::from),
-            meaning: "x".into(),
+            meanings: vec!["x".into()],
         }
     }
 

@@ -6,7 +6,8 @@ use crate::error::AppError;
 
 // Identifie nos fichiers, et leur format (à augmenter si la forme change).
 pub(super) const FORMAT: &str = "kougakushin";
-// 2 : manuels (book) ajoutés ; 3 : état "je connais" des emplois de particules.
+// 2 : manuels (book) ajoutés ; 3 : sens des mots en liste (item_meaning, D43) et état
+// "je connais" des emplois de particules.
 pub(super) const VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
@@ -46,6 +47,15 @@ pub(super) struct ItemRecord {
     pub(super) example_fr: Option<String>,
     pub(super) created_at: String,
     pub(super) updated_at: String,
+}
+
+// Un sens d'un mot. ItemRecord garde la colonne meaning : texte dérivé de ces sens ("je; moi").
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ItemMeaningRecord {
+    pub(super) item_id: i64,
+    pub(super) position: i64,
+    pub(super) meaning: String,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
@@ -102,6 +112,7 @@ pub(super) struct Backup {
     pub(super) books: Vec<BookRecord>,
     pub(super) lessons: Vec<LessonRecord>,
     pub(super) items: Vec<ItemRecord>,
+    pub(super) item_meanings: Vec<ItemMeaningRecord>,
     pub(super) cards: Vec<CardRecord>,
     pub(super) review_logs: Vec<ReviewLogRecord>,
     pub(super) settings: Vec<SettingRecord>,

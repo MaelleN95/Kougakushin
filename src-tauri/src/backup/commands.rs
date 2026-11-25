@@ -127,13 +127,15 @@ mod tests {
         pool
     }
 
-    // Un manuel, une leçon, un mot (2 cartes), une révision, un réglage, deux emplois de particules.
+    // Un manuel, une leçon, un mot à deux sens (2 cartes), une révision, un réglage,
+    // deux emplois de particules.
     async fn seeded_pool() -> SqlitePool {
         let pool = empty_pool().await;
         sqlx::raw_sql(
             "INSERT INTO book (title) VALUES ('Marugoto A1');
              INSERT INTO lesson (title, date, book_id) VALUES ('L1', '2026-11-18', 1);
-             INSERT INTO item (lesson_id, kind, kana, kanji, meaning) VALUES (1, 'vocab', 'たべる', '食べる', 'manger');
+             INSERT INTO item (lesson_id, kind, kana, kanji, meaning) VALUES (1, 'vocab', 'たべる', '食べる', 'manger; dévorer');
+             INSERT INTO item_meaning (item_id, position, meaning) VALUES (1, 0, 'manger'), (1, 1, 'dévorer');
              INSERT INTO card (item_id, direction) VALUES (1, 'fr_jp'), (1, 'jp_fr');
              UPDATE card SET state = 2, reps = 3, stability = 4.5 WHERE id = 1;
              INSERT INTO review_log (card_id, rating, state, elapsed_days, scheduled_days, reviewed_at)
@@ -184,6 +186,7 @@ mod tests {
             let before = repository::snapshot(&source, "t".into()).await.unwrap();
             let after = repository::snapshot(&target, "t".into()).await.unwrap();
             assert_eq!(before, after); // progression FSRS et historique compris (D24)
+            assert_eq!(after.item_meanings.len(), 2); // les deux sens, dans l'ordre
             // Emplois de particules : 1 et 11 cochés, 20 (coché avant l'import) décoché.
             let active: Vec<i64> = after
                 .particle_usages
@@ -237,17 +240,18 @@ mod tests {
         assert!(Backup::from_json("{}").is_err());
         assert!(Backup::from_json("pas du json").is_err());
         let valid = r#"{"format":"kougakushin","version":3,"exported_at":"","books":[],"lessons":[],
-            "items":[],"cards":[],"review_logs":[],"settings":[],"particle_usages":[]}"#;
+            "items":[],"item_meanings":[],"cards":[],"review_logs":[],"settings":[],
+            "particle_usages":[]}"#;
         assert!(Backup::from_json(valid).is_ok());
-        let wrong_format = r#"{"format":"autre","version":3,"exported_at":"","books":[],"lessons":[],
-            "items":[],"cards":[],"review_logs":[],"settings":[],"particle_usages":[]}"#;
-        assert!(Backup::from_json(wrong_format).is_err());
-        let extra_field = r#"{"format":"kougakushin","version":3,"exported_at":"","books":[],"lessons":[],
-            "items":[],"cards":[],"review_logs":[],"settings":[],"particle_usages":[],"pirate":true}"#;
-        assert!(Backup::from_json(extra_field).is_err());
-        // Ancienne version (sans les particules) : refusée avec un message clair.
-        let old_version = r#"{"format":"kougakushin","version":2,"exported_at":"","books":[],"lessons":[],
-            "items":[],"cards":[],"review_logs":[],"settings":[]}"#;
-        assert!(Backup::from_json(old_version).is_err());
+        assert!(
+            Backup::from_json(&valid.replace(r#""format":"kougakushin""#, r#""format":"autre""#))
+                .is_err()
+        );
+        assert!(
+            Backup::from_json(&valid.replace(r#""settings":[]"#, r#""settings":[],"pirate":true"#))
+                .is_err()
+        );
+        // Ancienne version : refusée.
+        assert!(Backup::from_json(&valid.replace(r#""version":3"#, r#""version":2"#)).is_err());
     }
 }

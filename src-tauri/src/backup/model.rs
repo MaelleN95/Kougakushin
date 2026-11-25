@@ -6,8 +6,8 @@ use crate::error::AppError;
 
 // Identifie nos fichiers, et leur format (à augmenter si la forme change).
 pub(super) const FORMAT: &str = "kougakushin";
-// 2 : manuels (book) ajoutés ; 3 : sens des mots en liste (item_meaning, D43) et état
-// "je connais" des emplois de particules.
+// 2 : manuels (book) ajoutés ; 3 : sens des mots en liste (item_meaning, D43), état "je
+// connais" des emplois de particules et formes de conjugaison (card.form, conjugation_form).
 pub(super) const VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
@@ -64,6 +64,7 @@ pub(super) struct CardRecord {
     pub(super) id: i64,
     pub(super) item_id: i64,
     pub(super) direction: String,
+    pub(super) form: Option<String>, // forme de conjugaison, pour direction = "conjugation"
     pub(super) next_review_at: String,
     pub(super) stability: f64,
     pub(super) difficulty: f64,
@@ -103,6 +104,14 @@ pub(super) struct ParticleUsageRecord {
     pub(super) active: bool,
 }
 
+// Interrupteur "je connais / pas encore" d'une forme verbale.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ConjugationFormRecord {
+    pub(super) form: String,
+    pub(super) known: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Backup {
@@ -117,6 +126,7 @@ pub(super) struct Backup {
     pub(super) review_logs: Vec<ReviewLogRecord>,
     pub(super) settings: Vec<SettingRecord>,
     pub(super) particle_usages: Vec<ParticleUsageRecord>,
+    pub(super) conjugation_forms: Vec<ConjugationFormRecord>,
 }
 
 impl Backup {

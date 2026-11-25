@@ -127,16 +127,18 @@ mod tests {
         pool
     }
 
-    // Un manuel, une leçon, un mot à deux sens (2 cartes), une révision, un réglage,
-    // deux emplois de particules.
+    // Un manuel, une leçon, un verbe à deux sens (2 cartes + 1 de conjugaison), une révision,
+    // un réglage, deux emplois de particules, la forme て connue en plus de ます.
     async fn seeded_pool() -> SqlitePool {
         let pool = empty_pool().await;
         sqlx::raw_sql(
             "INSERT INTO book (title) VALUES ('Marugoto A1');
              INSERT INTO lesson (title, date, book_id) VALUES ('L1', '2026-11-18', 1);
-             INSERT INTO item (lesson_id, kind, kana, kanji, meaning) VALUES (1, 'vocab', 'たべる', '食べる', 'manger; dévorer');
+             INSERT INTO item (lesson_id, kind, kana, kanji, meaning, word_type) VALUES (1, 'vocab', 'たべる', '食べる', 'manger; dévorer', 'ru_verb');
              INSERT INTO item_meaning (item_id, position, meaning) VALUES (1, 0, 'manger'), (1, 1, 'dévorer');
              INSERT INTO card (item_id, direction) VALUES (1, 'fr_jp'), (1, 'jp_fr');
+             INSERT INTO card (item_id, direction, form) VALUES (1, 'conjugation', 'te');
+             UPDATE conjugation_form SET known = 1 WHERE form = 'te';
              UPDATE card SET state = 2, reps = 3, stability = 4.5 WHERE id = 1;
              INSERT INTO review_log (card_id, rating, state, elapsed_days, scheduled_days, reviewed_at)
                  VALUES (1, 3, 0, 0, 1, '2026-11-20 10:00:00');
@@ -180,7 +182,7 @@ mod tests {
                     report.cards,
                     report.review_logs
                 ),
-                (1, 1, 1, 2, 1)
+                (1, 1, 1, 3, 1)
             );
 
             let before = repository::snapshot(&source, "t".into()).await.unwrap();
@@ -195,6 +197,15 @@ mod tests {
                 .map(|p| p.id)
                 .collect();
             assert_eq!(active, [1, 11]);
+            // Forme de la carte de conjugaison et formes connues comprises.
+            assert!(after.cards.iter().any(|c| c.form.as_deref() == Some("te")));
+            let known: Vec<&str> = after
+                .conjugation_forms
+                .iter()
+                .filter(|f| f.known)
+                .map(|f| f.form.as_str())
+                .collect();
+            assert_eq!(known, ["masu", "te"]);
         });
     }
 
@@ -241,7 +252,7 @@ mod tests {
         assert!(Backup::from_json("pas du json").is_err());
         let valid = r#"{"format":"kougakushin","version":3,"exported_at":"","books":[],"lessons":[],
             "items":[],"item_meanings":[],"cards":[],"review_logs":[],"settings":[],
-            "particle_usages":[]}"#;
+            "particle_usages":[],"conjugation_forms":[]}"#;
         assert!(Backup::from_json(valid).is_ok());
         assert!(
             Backup::from_json(&valid.replace(r#""format":"kougakushin""#, r#""format":"autre""#))

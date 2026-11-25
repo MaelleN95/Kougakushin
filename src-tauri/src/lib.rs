@@ -3,6 +3,7 @@ mod ai;
 mod backup;
 mod books;
 mod cards;
+mod conjugation;
 mod db;
 mod error;
 mod items;
@@ -18,6 +19,9 @@ use ai::{
 use backup::{export_data, import_data};
 use books::{create_book, delete_book, list_books, update_book};
 use cards::{get_review_session, review_card};
+use conjugation::{
+    conjugate_verb, list_conjugation_forms, list_verb_warnings, set_conjugation_form_known,
+};
 use items::{
     create_item, delete_item, delete_items, list_items, move_items, set_item_active,
     set_items_active, update_item,
@@ -78,6 +82,10 @@ pub fn run() {
             delete_items,
             get_review_session,
             review_card,
+            conjugate_verb,
+            list_conjugation_forms,
+            set_conjugation_form_known,
+            list_verb_warnings,
             get_settings,
             update_settings,
             check_ollama,

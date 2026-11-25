@@ -3,11 +3,19 @@
 import { useEffect, useState } from "react";
 import { api, errorMessage } from "../api";
 import { groupLessons } from "../lessonGroups";
-import type { Book, Item, ItemFilter, ItemKind, Lesson } from "../types";
+import type { Book, Item, ItemFilter, ItemKind, Lesson, VerbForm, VerbWarning } from "../types";
+import { VerbConjugation } from "./ConjugationTable";
 import ItemForm, { WORD_TYPE_LABELS } from "./ItemForm";
 import LessonOptions from "./LessonOptions";
 import MeaningTags from "./MeaningTags";
 import SelectionBar from "./SelectionBar";
+import { isVerbType } from "./VerbFields";
+
+// Message affiché sous un mot signalé par Rust (list_verb_warnings).
+const VERB_WARNING_LABELS = {
+  type_missing: "Type de verbe à préciser ? (le mot ressemble à un verbe)",
+  invalid_ending: "Type de verbe incompatible avec la terminaison : pas de conjugaison",
+} as const;
 
 export default function ItemsPage() {
   const [lessons, setLessons] = useState<Lesson[]>([]);
@@ -22,18 +30,27 @@ export default function ItemsPage() {
   const [selected, setSelected] = useState<number[]>([]);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkMessage, setBulkMessage] = useState<string | null>(null);
+  // Verbes : formes connues (réglage), mots signalés, tableau de conjugaison déplié.
+  const [knownForms, setKnownForms] = useState<VerbForm[]>([]);
+  const [verbWarnings, setVerbWarnings] = useState<VerbWarning[]>([]);
+  const [openConjugationId, setOpenConjugationId] = useState<number | null>(null);
 
   async function reloadItems() {
     try {
       const list = await api.listItems(filter);
       setItems(list);
       setSelected((current) => current.filter((id) => list.some((item) => item.id === id)));
+      setVerbWarnings(await api.listVerbWarnings());
     } catch (e) {
       setError(errorMessage(e));
     }
   }
 
   useEffect(() => {
+    api
+      .listConjugationForms()
+      .then((forms) => setKnownForms(forms.filter((f) => f.known).map((f) => f.form)))
+      .catch((e) => setError(errorMessage(e)));
     api.listLessons().then(setLessons).catch((e) => setError(errorMessage(e)));
     api.listBooks().then(setBooks).catch((e) => setError(errorMessage(e)));
     api
@@ -232,6 +249,33 @@ export default function ItemsPage() {
                       <p className="text-sm text-stone-500">
                         {WORD_TYPE_LABELS[item.content.word_type]}
                       </p>
+                    )}
+                    {verbWarnings
+                      .filter((w) => w.item_id === item.id)
+                      .map((w) => (
+                        <p key={w.issue} className="text-sm text-amber-700">
+                          {VERB_WARNING_LABELS[w.issue]}
+                        </p>
+                      ))}
+                    {isVerbType(item.content.word_type) && (
+                      <div className="mt-1">
+                        <button
+                          className="text-sm text-red-800 underline"
+                          onClick={() =>
+                            setOpenConjugationId(openConjugationId === item.id ? null : item.id)
+                          }
+                        >
+                          {openConjugationId === item.id ? "Masquer la conjugaison" : "Conjugaison"}
+                        </button>
+                        {openConjugationId === item.id && (
+                          <VerbConjugation
+                            kana={item.content.kana}
+                            kanji={item.content.kanji}
+                            verbType={item.content.word_type}
+                            known={knownForms}
+                          />
+                        )}
+                      </div>
                     )}
                   </>
                 ) : (

@@ -148,11 +148,13 @@ item      (id, lesson_id, kind ['vocab'|'grammar'], active,
            kana, romaji, kanji, meaning, word_type,       -- vocab
            title, explanation,                            -- grammar
            example_jp, example_fr, created_at, updated_at)
-card      (id, item_id, direction ['fr_jp'|'jp_fr'|'kanji_read'],
+card      (id, item_id, direction ['fr_jp'|'jp_fr'|'kanji_read'|'conjugation'],
+           form NULL,                                     -- forme verbale (conjugation)
            next_review_at, stability, difficulty, elapsed_days, scheduled_days,
            reps, lapses, state, last_review, created_at)
 review_log(id, card_id, rating, state, elapsed_days, scheduled_days, reviewed_at)
 setting   (key, value)
+conjugation_form (form, known)                            -- formes verbales connues (D40)
 ```
 
 Source de vérité : les migrations de `src-tauri/migrations/`.

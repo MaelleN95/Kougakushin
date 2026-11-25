@@ -3,6 +3,7 @@
 
 use std::collections::HashSet;
 
+use crate::conjugation::{VerbType, conjugate};
 use crate::items::Knowledge;
 
 // Longueur maximale d'une explication de grammaire dans les consignes (prompt plus court).
@@ -75,6 +76,13 @@ pub(super) fn unknown_words(
             known_kanji.extend(kanji.chars().filter(|&c| is_kanji(c)));
         }
     }
+    // Formes conjuguées de mes verbes (たべます, 食べて...), si l'IA les déclare telles quelles (D41).
+    for form in knowledge.conjugations.iter().flatten() {
+        known.insert(form.kana.as_str());
+        if let Some(kanji) = &form.kanji {
+            known.insert(kanji.as_str());
+        }
+    }
 
     let mut unknown: Vec<String> = Vec::new();
     for word in declared {
@@ -140,6 +148,15 @@ pub(super) fn normalize_japanese(text: &str, knowledge: &Knowledge) -> String {
             stems.push((kanji_stem, kana_stem));
         }
     }
+    // Formes conjuguées entières (来ます => きます) : le radical seul ne suffit pas quand la
+    // lecture du kanji change (来る => く, mais 来ます => き). Plus longues, donc remplacées avant.
+    for form in knowledge.conjugations.iter().flatten() {
+        if let Some(kanji) = &form.kanji
+            && kanji.chars().any(is_kanji)
+        {
+            stems.push((kanji.clone(), form.kana.clone()));
+        }
+    }
     // Radicaux les plus longs d'abord (学校 avant 学).
     stems.sort_by_key(|(kanji, _)| std::cmp::Reverse(kanji.chars().count()));
     for (kanji, kana) in stems {
@@ -187,6 +204,29 @@ pub(super) fn allowed_kanji(knowledge: &Knowledge) -> String {
     seen.into_iter().collect()
 }
 
+// Formes verbales permises (D41), avec leur exemple sur たべる pour que le modèle les reconnaisse.
+fn verb_form_rule(knowledge: &Knowledge) -> String {
+    if knowledge.verb_forms.is_empty() {
+        return "Verbes : aucune forme verbale n'est encore connue, n'emploie aucun verbe \
+                conjugué."
+            .to_string();
+    }
+    let example = conjugate("たべる", None, VerbType::Ru).unwrap_or_default();
+    let forms: Vec<String> = knowledge
+        .verb_forms
+        .iter()
+        .map(|&form| match example.iter().find(|f| f.form == form) {
+            Some(f) => format!("{} ({})", form.prompt_name(), f.kana),
+            None => form.prompt_name().to_string(),
+        })
+        .collect();
+    format!(
+        "Verbes : conjugue-les UNIQUEMENT à ces formes : {}. Aucune autre forme verbale, sauf \
+         celles des points de grammaire de la liste.",
+        forms.join(", ")
+    )
+}
+
 // Règles strictes + listes de vocabulaire et de grammaire, communes à tous les exercices.
 pub(super) fn knowledge_rules(knowledge: &Knowledge) -> String {
     let vocabulary: Vec<String> = knowledge
@@ -214,17 +254,19 @@ pub(super) fn knowledge_rules(knowledge: &Knowledge) -> String {
     } else {
         grammar.join("\n")
     };
+    let verb_forms = verb_form_rule(knowledge);
 
     format!(
         "Règles strictes :\n\
          1. Vocabulaire : UNIQUEMENT les mots de la liste ci-dessous (conjugués si besoin), \
          plus les particules autorisées.\n\
-         2. Grammaire : UNIQUEMENT les points de la liste ci-dessous, plus la forme polie \
-         です / ます (décision D11).\n\
+         2. Grammaire : UNIQUEMENT les points de la liste ci-dessous, plus la copule polie \
+         です (D11). Les formes verbales permises sont celles de la règle 5.\n\
          3. {} Écris avec leur kanji les mots de la liste qui en ont un.\n\
          4. Dans `words`, liste les noms, verbes, adjectifs et adverbes de ton japonais, à leur \
          forme du dictionnaire, écrits exactement comme dans la liste de vocabulaire \
-         (sans les particules ni です / ます).\n\n\
+         (sans les particules ni です / ます).\n\
+         5. {verb_forms}\n\n\
          Vocabulaire :\n{}\n\nGrammaire :\n{grammar}\n\n{}",
         writing_rule(&allowed_kanji(knowledge)),
         vocabulary.join("\n"),
@@ -296,6 +338,7 @@ pub(super) fn test_model() -> String {
 #[cfg(test)]
 mod tests {
     use super::{knowledge_rules, normalize_japanese, unknown_words};
+    use crate::conjugation::{VerbForm, VerbType, conjugate};
     use crate::items::{Knowledge, KnownWord};
     use crate::particles::KnownParticleUsage;
 
@@ -391,5 +434,49 @@ mod tests {
         assert_eq!(n("すしを食べます。"), n("すし を たべます"));
         assert_eq!(n("学校 に 行きます！"), "がっこうにいきます");
         assert_ne!(n("すし を たべます"), n("すし が たべます"));
+    }
+
+    // Mes verbes たべる (食べる) et くる (来る), avec leurs tableaux de conjugaison.
+    fn verbs_knowledge(verb_forms: Vec<VerbForm>) -> Knowledge {
+        Knowledge {
+            words: vec![word("たべる", Some("食べる")), word("くる", Some("来る"))],
+            verb_forms,
+            conjugations: vec![
+                conjugate("たべる", Some("食べる"), VerbType::Ru).unwrap(),
+                conjugate("くる", Some("来る"), VerbType::Irregular).unwrap(),
+            ],
+            ..Knowledge::default()
+        }
+    }
+
+    #[test]
+    fn garde_fou_reconnait_les_formes_conjuguees_de_mes_verbes() {
+        let knowledge = verbs_knowledge(vec![VerbForm::Masu]);
+        let declared: Vec<String> = ["たべます", "食べて", "来なかった", "のみます"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(
+            unknown_words("", &declared, &knowledge),
+            ["のみます"] // のむ n'est pas dans ma base
+        );
+    }
+
+    #[test]
+    fn normalisation_des_kanji_dont_la_lecture_change() {
+        let knowledge = verbs_knowledge(vec![VerbForm::Masu]);
+        let n = |t: &str| normalize_japanese(t, &knowledge);
+        // 来る se lit く, mais 来ます se lit きます et 来ない こない.
+        assert_eq!(n("あした 来ます"), "あしたきます");
+        assert_eq!(n("来ない"), "こない");
+        assert_eq!(n("食べました"), "たべました");
+    }
+
+    #[test]
+    fn consignes_limitees_aux_formes_connues() {
+        let rules = knowledge_rules(&verbs_knowledge(vec![VerbForm::Masu, VerbForm::Te]));
+        assert!(rules.contains("UNIQUEMENT à ces formes : ます (たべます), て (たべて)."));
+        let none = knowledge_rules(&verbs_knowledge(vec![]));
+        assert!(none.contains("aucune forme verbale n'est encore connue"));
     }
 }

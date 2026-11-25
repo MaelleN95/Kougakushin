@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { api, errorMessage } from "../api";
 import { groupLessons } from "../lessonGroups";
 import type { Book, Lesson, ReviewCard, ReviewRating, ReviewScope } from "../types";
+import { VERB_FORM_LABELS } from "./ConjugationTable";
 import LessonOptions from "./LessonOptions";
 import MeaningTags from "./MeaningTags";
 import { shuffled } from "../utils";
@@ -32,11 +33,35 @@ function Question({ card }: { card: ReviewCard }) {
       return <p className="text-4xl">{card.kana}</p>;
     case "kanji_read":
       return <p className="text-5xl">{card.kanji}</p>;
+    case "conjugation":
+      // "たべる - forme en て ?" ; pour la forme du dictionnaire, la question part de ます.
+      return card.conjugation === null ? null : (
+        <div className="space-y-2">
+          <p className="text-4xl">
+            {card.conjugation.question_kanji ?? card.conjugation.question_kana}
+          </p>
+          <p className="text-lg text-stone-600">{VERB_FORM_LABELS[card.conjugation.form]} ?</p>
+        </div>
+      );
   }
 }
 
-// Réponse complète : la même pour les trois sens.
+// Réponse complète : la même pour les trois premiers sens ; la forme demandée pour la conjugaison.
 function Answer({ card, showRomaji }: { card: ReviewCard; showRomaji: boolean }) {
+  if (card.conjugation !== null) {
+    const { answer_kana, answer_kanji } = card.conjugation;
+    return (
+      <div className="space-y-1 border-t border-stone-200 pt-4">
+        <p className="text-2xl">
+          {answer_kanji !== null && answer_kanji !== answer_kana && (
+            <span className="mr-3">{answer_kanji}</span>
+          )}
+          {answer_kana}
+        </p>
+        <MeaningTags meanings={card.meanings} size="md" centered />
+      </div>
+    );
+  }
   return (
     <div className="space-y-1 border-t border-stone-200 pt-4">
       <p className="text-2xl">
@@ -61,6 +86,7 @@ const DIRECTION_LABELS = {
   fr_jp: "Français => japonais",
   jp_fr: "Japonais => français",
   kanji_read: "Lecture du kanji",
+  conjugation: "Conjugaison",
 } as const; // as const : objet en lecture seule, valeurs gardées comme littéraux
 
 // Valeur du menu de leçons => portée de la session envoyée à Rust.

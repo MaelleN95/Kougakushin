@@ -86,14 +86,50 @@ export type ItemFilter = {
   search?: string;
 };
 
+// --- Conjugaison (miroir de src-tauri/src/conjugation/) ---
+
+// Sous-ensemble de WordType : les trois groupes de verbes.
+export type VerbType = "ru_verb" | "u_verb" | "irregular_verb";
+
+export type VerbForm =
+  | "dictionary"
+  | "masu"
+  | "masen"
+  | "mashita"
+  | "masen_deshita"
+  | "te"
+  | "ta"
+  | "nai"
+  | "nakatta";
+
+// Une case du tableau ; kanji null si le mot n'a pas de kanji (ou forme sans kanji).
+export type ConjugatedForm = { form: VerbForm; kana: string; kanji: string | null };
+
+// Interrupteur "je connais / pas encore" d'une forme.
+export type ConjugationFormState = { form: VerbForm; known: boolean };
+
+// Mot signalé dans l'onglet Éléments.
+export type VerbIssue = "type_missing" | "invalid_ending";
+export type VerbWarning = { item_id: number; issue: VerbIssue };
+
 // --- Révisions ---
 
-export type Direction = "fr_jp" | "jp_fr" | "kanji_read";
+export type Direction = "fr_jp" | "jp_fr" | "kanji_read" | "conjugation";
+
+// Question d'une carte de conjugaison (calculée par Rust).
+export type ConjugationQuiz = {
+  form: VerbForm;
+  question_kana: string;
+  question_kanji: string | null;
+  answer_kana: string;
+  answer_kanji: string | null;
+};
 
 // Carte à réviser (miroir de ReviewCard dans src-tauri/src/cards/model.rs).
 export type ReviewCard = {
   card_id: number;
   direction: Direction;
+  conjugation: ConjugationQuiz | null; // rempli seulement pour direction = "conjugation"
   is_new: boolean;
   kana: string;
   romaji: string | null;

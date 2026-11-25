@@ -8,6 +8,7 @@ import type { Item, ItemContent, ItemInput, ItemKind, WordType } from "../types"
 import { emptyToNull } from "../utils";
 import LessonOptions from "./LessonOptions";
 import MeaningsField from "./MeaningsField";
+import VerbFields, { isVerbType } from "./VerbFields";
 
 // Record<K, V> : un objet qui a exactement une valeur V pour chaque clé K.
 // Si on ajoute un WordType sans libellé, tsc refuse de compiler.
@@ -42,7 +43,10 @@ export default function ItemForm({
   const grammar = editing?.content.kind === "grammar" ? editing.content : null;
 
   const [lessonId, setLessonId] = useState(editing?.lesson_id ?? defaultLessonId);
-  const [kind, setKind] = useState<ItemKind>(editing?.content.kind ?? "vocab");
+  // "verb" : mode Verbe du formulaire (D42) ; enregistré comme du vocabulaire avec son type.
+  const [kind, setKind] = useState<ItemKind | "verb">(
+    isVerbType(vocab?.word_type) ? "verb" : (editing?.content.kind ?? "vocab"),
+  );
   const [kana, setKana] = useState(vocab?.kana ?? "");
   const [romaji, setRomaji] = useState(vocab?.romaji ?? "");
   const [kanji, setKanji] = useState(vocab?.kanji ?? "");
@@ -78,7 +82,7 @@ export default function ItemForm({
   // (deny_unknown_fields refuserait un champ de l'autre type).
   function buildInput(): ItemInput {
     const content: ItemContent =
-      kind === "vocab"
+      kind !== "grammar"
         ? {
             kind: "vocab",
             kana: kana.trim(),
@@ -112,6 +116,10 @@ export default function ItemForm({
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    if (kind === "verb" && !isVerbType(wordType)) {
+      setError("Choisis le type du verbe : en -ru, en -u ou irrégulier.");
+      return;
+    }
     try {
       if (editing === null) {
         await api.createItem(buildInput());
@@ -137,20 +145,24 @@ export default function ItemForm({
           <LessonOptions groups={lessonGroups} />
         </select>
         <div className="flex gap-1">
-          {(["vocab", "grammar"] as const).map((k) => (
+          {(["vocab", "verb", "grammar"] as const).map((k) => (
             <button
               key={k}
               type="button"
               className={kind === k ? "btn-primary" : "btn"}
-              onClick={() => setKind(k)}
+              onClick={() => {
+                setKind(k);
+                // Passage en mode Verbe : un type "nom" ou "adjectif" n'a plus de sens.
+                if (k === "verb" && !isVerbType(wordType)) setWordType("");
+              }}
             >
-              {k === "vocab" ? "Vocabulaire" : "Grammaire"}
+              {k === "vocab" ? "Vocabulaire" : k === "verb" ? "Verbe" : "Grammaire"}
             </button>
           ))}
         </div>
       </div>
 
-      {kind === "vocab" ? (
+      {kind !== "grammar" ? (
         <div className="space-y-2">
           <div className="grid gap-3 sm:grid-cols-2">
             <input
@@ -173,21 +185,31 @@ export default function ItemForm({
               value={kanji}
               onChange={(e) => setKanji(e.target.value)}
             />
-            <select
-              className="field"
-              value={wordType}
-              // `as` : on affirme à TS que la valeur est bien un WordType ou "",
-              // ce que garantissent les <option> ci-dessous.
-              onChange={(e) => setWordType(e.target.value as WordType | "")}
-            >
-              <option value="">Type de mot (facultatif)</option>
-              {Object.entries(WORD_TYPE_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
+            {kind === "vocab" && (
+              <select
+                className="field"
+                value={wordType}
+                // `as` : on affirme à TS que la valeur est bien un WordType ou "",
+                // ce que garantissent les <option> ci-dessous.
+                onChange={(e) => setWordType(e.target.value as WordType | "")}
+              >
+                <option value="">Type de mot (facultatif)</option>
+                {Object.entries(WORD_TYPE_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
+          {kind === "verb" && (
+            <VerbFields
+              kana={kana}
+              kanji={kanji}
+              wordType={wordType}
+              onWordTypeChange={setWordType}
+            />
+          )}
           {unconverted && (
             <p className="text-sm text-amber-700">
               Les kana contiennent encore des lettres latines : vérifie le romaji

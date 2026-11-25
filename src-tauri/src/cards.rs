@@ -9,3 +9,6 @@ pub(crate) use commands::{get_review_session, review_card};
 
 // Appelé par `items` à chaque création ou modification d'élément.
 pub(crate) use repository::sync_for_item;
+
+// Appelé par `conjugation` quand une forme est activée ou désactivée.
+pub(crate) use repository::sync_conjugation_form;

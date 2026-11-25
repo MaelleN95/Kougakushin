@@ -1,7 +1,7 @@
 // Formulaire d'ajout rapide (Entrée = ajouter et rester) et de modification d'un élément.
 
 import { FormEvent, useRef, useState } from "react";
-import { toRomaji } from "wanakana";
+import { toKana, toRomaji } from "wanakana";
 import { api, errorMessage } from "../api";
 import type { LessonGroup } from "../lessonGroups";
 import type { Item, ItemContent, ItemInput, ItemKind, WordType } from "../types";
@@ -44,8 +44,6 @@ export default function ItemForm({
   const [kind, setKind] = useState<ItemKind>(editing?.content.kind ?? "vocab");
   const [kana, setKana] = useState(vocab?.kana ?? "");
   const [romaji, setRomaji] = useState(vocab?.romaji ?? "");
-  // Tant que le romaji n'est pas retouché à la main, il suit les kana.
-  const [romajiEdited, setRomajiEdited] = useState(vocab?.romaji != null);
   const [kanji, setKanji] = useState(vocab?.kanji ?? "");
   const [meaning, setMeaning] = useState(vocab?.meaning ?? "");
   const [wordType, setWordType] = useState<WordType | "">(vocab?.word_type ?? "");
@@ -58,10 +56,22 @@ export default function ItemForm({
   // Pour remettre le curseur dans le premier champ après un ajout.
   const firstField = useRef<HTMLInputElement>(null);
 
+  // D32 : le champ dans lequel on tape remplit l'autre, sans IA (wanakana).
+  // Toute la saisie est reconvertie à chaque frappe : un "n" final devient ん, puis redevient
+  // な si on tape "a" ensuite.
   function handleKanaChange(value: string) {
     setKana(value);
-    if (!romajiEdited) setRomaji(toRomaji(value));
+    setRomaji(toRomaji(value));
   }
+
+  // Majuscules => katakana (KO-HI- => コーヒー).
+  function handleRomajiChange(value: string) {
+    setRomaji(value);
+    setKana(toKana(value));
+  }
+
+  // Lettres latines restées dans les kana : romaji mal formé (ex. "shimbun" => しmぶん).
+  const unconverted = /[a-z]/i.test(kana);
 
   // Construit l'objet attendu par Rust : uniquement les champs du type choisi
   // (deny_unknown_fields refuserait un champ de l'autre type).
@@ -89,7 +99,6 @@ export default function ItemForm({
   function clearFields() {
     setKana("");
     setRomaji("");
-    setRomajiEdited(false);
     setKanji("");
     setMeaning("");
     setWordType("");
@@ -141,49 +150,55 @@ export default function ItemForm({
       </div>
 
       {kind === "vocab" ? (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <input
-            ref={firstField}
-            className="field"
-            placeholder="Kana (ex. たべる)"
-            value={kana}
-            onChange={(e) => handleKanaChange(e.target.value)}
-          />
-          <input
-            className="field"
-            placeholder="Traduction (sens séparés par ;)"
-            value={meaning}
-            onChange={(e) => setMeaning(e.target.value)}
-          />
-          <input
-            className="field"
-            placeholder="Romaji (automatique)"
-            value={romaji}
-            onChange={(e) => {
-              setRomaji(e.target.value);
-              setRomajiEdited(true);
-            }}
-          />
-          <input
-            className="field"
-            placeholder="Kanji (facultatif)"
-            value={kanji}
-            onChange={(e) => setKanji(e.target.value)}
-          />
-          <select
-            className="field"
-            value={wordType}
-            // `as` : on affirme à TS que la valeur est bien un WordType ou "",
-            // ce que garantissent les <option> ci-dessous.
-            onChange={(e) => setWordType(e.target.value as WordType | "")}
-          >
-            <option value="">Type de mot (facultatif)</option>
-            {Object.entries(WORD_TYPE_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+        <div className="space-y-2">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <input
+              ref={firstField}
+              className="field"
+              placeholder="Kana (ex. たべる)"
+              value={kana}
+              onChange={(e) => handleKanaChange(e.target.value)}
+            />
+            <input
+              className="field"
+              placeholder="Traduction (sens séparés par ;)"
+              value={meaning}
+              onChange={(e) => setMeaning(e.target.value)}
+            />
+            <input
+              className="field"
+              placeholder="Romaji (remplit les kana)"
+              value={romaji}
+              onChange={(e) => handleRomajiChange(e.target.value)}
+            />
+            <input
+              className="field"
+              placeholder="Kanji (facultatif)"
+              value={kanji}
+              onChange={(e) => setKanji(e.target.value)}
+            />
+            <select
+              className="field"
+              value={wordType}
+              // `as` : on affirme à TS que la valeur est bien un WordType ou "",
+              // ce que garantissent les <option> ci-dessous.
+              onChange={(e) => setWordType(e.target.value as WordType | "")}
+            >
+              <option value="">Type de mot (facultatif)</option>
+              {Object.entries(WORD_TYPE_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+          {unconverted && (
+            <p className="text-sm text-amber-700">
+              Les kana contiennent encore des lettres latines : vérifie le romaji
+              (règles ci-dessous).
+            </p>
+          )}
+          <RomajiRules />
         </div>
       ) : (
         <div className="space-y-3">
@@ -232,5 +247,65 @@ export default function ItemForm({
         )}
       </div>
     </form>
+  );
+}
+
+// Aide repliable : comment écrire le romaji pour que les kana soient justes (D32).
+// Exemples vérifiés avec wanakana 5.3.1.
+function RomajiRules() {
+  const rules: [string, string][] = [
+    [
+      "Écris comme les kana, pas comme la prononciation",
+      "toukyou = とうきょう (tokyo = ときょ), ookii = おおきい, sensei = せんせい, konnichiha = こんにちは",
+    ],
+    [
+      "ん devant une voyelle ou y : n'",
+      "kin'en = きんえん (kinen = きねん), kan'you = かんよう (kanyou = かにょう)",
+    ],
+    [
+      "ん en fin de mot : un seul n",
+      "hon = ほん (honn = ほんん)",
+    ],
+    [
+      "ん devant b, p, m : n, jamais m",
+      "shinbun = しんぶん (shimbun = しmぶん)",
+    ],
+    [
+      "Petit っ : double la consonne",
+      "kitte = きって, gakkou = がっこう",
+    ],
+    [
+      "Petits ゃ ゅ ょ",
+      "kyou = きょう, sha = しゃ, cho = ちょ",
+    ],
+    [
+      "を, づ, ぢ",
+      "wo = を, du = づ, di = ぢ",
+    ],
+    [
+      "Katakana : tout le mot en MAJUSCULES, - pour allonger",
+      "KO-HI- = コーヒー, SE-TA- = セーター",
+    ],
+    [
+      "Pas d'accents",
+      "tōkyō n'est pas converti : écris toukyou",
+    ],
+  ];
+  return (
+    <details className="text-sm text-stone-600">
+      <summary className="cursor-pointer">Règles pour taper en romaji</summary>
+      <ul className="mt-2 space-y-1">
+        {rules.map(([rule, example]) => (
+          <li key={rule}>
+            <span className="font-medium">{rule}</span> : {example}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2">
+        Mots mêlant alphabet et kana (Tシャツ) et kanji : tape-les avec le clavier japonais de
+        Windows. Le champ dans lequel tu tapes remplit l'autre : retoucher le romaji d'un mot en
+        katakana le repasse en hiragana, sauf si tu le tapes en majuscules.
+      </p>
+    </details>
   );
 }

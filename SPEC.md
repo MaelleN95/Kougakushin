@@ -108,7 +108,7 @@ La conversation n'est pas sauvegardée en base ; elle est écrite dans le journa
 Démarrage après quelques jours d'usage réel de la V1 (D25). Ordre de réalisation (D26) :
 
 1. Thème "Nuit japonaise" soigné (palette et typos de `docs/archive/`), furigana.
-2. Conjugaisons : génération algorithmique des formes verbales (en Rust) + flashcards de grammaire.
+2. Conjugaisons : génération algorithmique des formes verbales (en Rust) + flashcards de grammaire. **Fait le 2026-11-25** (D40 à D42), avec le catalogue des particules (D37, D38 ; leurs flashcards plus tard, D39) et les sens en liste (D43).
 3. Statistiques et suivi de régularité.
 4. Fiches kanji dédiées (lectures on/kun, vocabulaire lié).
 5. Sauvegarde automatique vers un dossier choisi, par exemple synchronisé (D27).
@@ -155,7 +155,12 @@ card      (id, item_id, direction ['fr_jp'|'jp_fr'|'kanji_read'|'conjugation'],
 review_log(id, card_id, rating, state, elapsed_days, scheduled_days, reviewed_at)
 setting   (key, value)
 conjugation_form (form, known)                            -- formes verbales connues (D40)
+item_meaning (item_id, position, meaning)                 -- sens d'un mot, en liste (D43)
+particle_usage (id, particle, usage, explanation,         -- catalogue des emplois de
+                example_jp, example_fr, active, position) -- particules (D37)
 ```
+
+`item.meaning` reste rempli ("je; moi") comme texte dérivé de `item_meaning`, pour respecter le CHECK de la table `item` ; il n'est plus relu.
 
 Source de vérité : les migrations de `src-tauri/migrations/`.
 

@@ -791,7 +791,7 @@ mod tests {
                 k.words.push(KnownWord {
                     kana: kana.into(),
                     kanji: None,
-                    meaning: meaning.into(),
+                    meanings: vec![meaning.into()],
                 });
             }
             let theme = find_theme(Some("introduction")).unwrap();

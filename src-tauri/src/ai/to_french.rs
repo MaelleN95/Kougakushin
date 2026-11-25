@@ -113,9 +113,9 @@ pub(super) fn glossary(japanese: &str, knowledge: &Knowledge) -> String {
         })
         .map(|w| {
             let meaning = w
-                .meaning
-                .split(';')
-                .map(str::trim)
+                .meanings
+                .iter()
+                .map(|m| m.trim())
                 .filter(|m| !m.is_empty())
                 .collect::<Vec<_>>()
                 .join(" / ");
@@ -160,7 +160,7 @@ mod tests {
         let word = |kana: &str, kanji: Option<&str>, meaning: &str| crate::items::KnownWord {
             kana: kana.into(),
             kanji: kanji.map(String::from),
-            meaning: meaning.into(),
+            meanings: meaning.split(';').map(String::from).collect(),
         };
         let knowledge = Knowledge {
             words: vec![

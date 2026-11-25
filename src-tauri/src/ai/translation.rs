@@ -147,10 +147,14 @@ fn looks_like_verb(kana: &str, meaning: &str) -> bool {
 fn can_use(needs: Needs, knowledge: &Knowledge) -> bool {
     match needs {
         Needs::Nothing => true,
-        Needs::Verb => knowledge
-            .words
-            .iter()
-            .any(|w| looks_like_verb(&w.kana, &w.meaning)),
+        // Verbe typé (conjugaison connue) ou, à défaut, mot qui ressemble à un verbe.
+        Needs::Verb => {
+            !knowledge.conjugations.is_empty()
+                || knowledge
+                    .words
+                    .iter()
+                    .any(|w| looks_like_verb(&w.kana, &w.meanings.join(";")))
+        }
         Needs::Negation => knowledge.grammar.iter().any(|g| {
             let text = format!("{} {}", g.title, g.explanation).to_lowercase();
             ["ません", "ない", "じゃ", "négati"]

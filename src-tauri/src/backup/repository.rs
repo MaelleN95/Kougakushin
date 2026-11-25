@@ -3,8 +3,8 @@
 use sqlx::SqlitePool;
 
 use super::model::{
-    Backup, BookRecord, CardRecord, FORMAT, ItemRecord, LessonRecord, ReviewLogRecord,
-    SettingRecord, VERSION,
+    Backup, BookRecord, CardRecord, ConjugationFormRecord, FORMAT, ItemRecord, LessonRecord,
+    ReviewLogRecord, SettingRecord, VERSION,
 };
 
 // Toutes les données, dans l'ordre des id.
@@ -34,8 +34,8 @@ pub(super) async fn snapshot(
         .fetch_all(pool)
         .await?,
         cards: sqlx::query_as::<_, CardRecord>(
-            "SELECT id, item_id, direction, next_review_at, stability, difficulty, elapsed_days,
-                    scheduled_days, reps, lapses, state, last_review, created_at
+            "SELECT id, item_id, direction, form, next_review_at, stability, difficulty,
+                    elapsed_days, scheduled_days, reps, lapses, state, last_review, created_at
              FROM card ORDER BY id",
         )
         .fetch_all(pool)
@@ -49,6 +49,11 @@ pub(super) async fn snapshot(
         settings: sqlx::query_as::<_, SettingRecord>("SELECT key, value FROM setting ORDER BY key")
             .fetch_all(pool)
             .await?,
+        conjugation_forms: sqlx::query_as::<_, ConjugationFormRecord>(
+            "SELECT form, known FROM conjugation_form ORDER BY form",
+        )
+        .fetch_all(pool)
+        .await?,
     })
 }
 
@@ -67,6 +72,7 @@ pub(super) async fn replace_all(pool: &SqlitePool, backup: &Backup) -> Result<()
         "DELETE FROM lesson",
         "DELETE FROM book",
         "DELETE FROM setting",
+        "DELETE FROM conjugation_form",
     ] {
         sqlx::query(delete).execute(&mut *tx).await?;
     }
@@ -119,14 +125,15 @@ pub(super) async fn replace_all(pool: &SqlitePool, backup: &Backup) -> Result<()
     }
     for c in &backup.cards {
         sqlx::query(
-            "INSERT INTO card (id, item_id, direction, next_review_at, stability, difficulty,
+            "INSERT INTO card (id, item_id, direction, form, next_review_at, stability, difficulty,
                                elapsed_days, scheduled_days, reps, lapses, state, last_review,
                                created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(c.id)
         .bind(c.item_id)
         .bind(&c.direction)
+        .bind(&c.form)
         .bind(&c.next_review_at)
         .bind(c.stability)
         .bind(c.difficulty)
@@ -160,6 +167,13 @@ pub(super) async fn replace_all(pool: &SqlitePool, backup: &Backup) -> Result<()
         sqlx::query("INSERT INTO setting (key, value) VALUES (?, ?)")
             .bind(&s.key)
             .bind(&s.value)
+            .execute(&mut *tx)
+            .await?;
+    }
+    for f in &backup.conjugation_forms {
+        sqlx::query("INSERT INTO conjugation_form (form, known) VALUES (?, ?)")
+            .bind(&f.form)
+            .bind(f.known)
             .execute(&mut *tx)
             .await?;
     }

@@ -7,8 +7,8 @@ use tauri::State;
 
 use super::client::{ChatRequest, ChatTurn, Ollama, Role};
 use super::knowledge_prompt::{
-    allowed_kanji, is_kanji, kanji_reminder, knowledge_rules, normalize_japanese, pick_index,
-    unknown_words, writing_rule,
+    NO_PLURAL_IN_JAPANESE, allowed_kanji, is_kanji, kanji_reminder, knowledge_rules,
+    normalize_japanese, pick_index, unknown_words, writing_rule,
 };
 use super::to_french::to_french;
 use crate::error::AppError;
@@ -217,6 +217,7 @@ fn review_system_prompt(theme: &Theme, knowledge: &Knowledge) -> String {
          Ne sont PAS des erreurs : une réponse courte mais naturelle (ex. おなまえは？) ; un \
          sujet omis ; un mot en kanji plutôt qu'en kana (ou l'inverse) ; l'absence d'espaces ; \
          une autre formulation correcte.\n\
+         {NO_PLURAL_IN_JAPANESE}\n\
          Sont des erreurs : particule, conjugaison, mot faux ou qui ne répond pas à la question, \
          kanji qui ne correspond pas au mot voulu (souvent une erreur de conversion du clavier, \
          ex. 先制 au lieu de 先生).\n\
@@ -269,7 +270,8 @@ fn summary_system_prompt(theme: &Theme, errors: &[SummaryError]) -> String {
          - strengths : 1 à 3 réussites précises, en citant ce qu'elle a RÉELLEMENT écrit et qui \
          est juste (jamais une phrase de la liste des erreurs).\n\
          - to_review : 2 ou 3 notions à revoir, tirées de ses erreurs (s'il n'y en a pas, des \
-         notions qu'elle a utilisées et qui méritent d'être consolidées).",
+         notions qu'elle a utilisées et qui méritent d'être consolidées). Jamais le pluriel : \
+         {NO_PLURAL_IN_JAPANESE}",
         theme.role
     )
 }
@@ -472,14 +474,17 @@ async fn is_real_error(
     conversation: &str,
     error: &SummaryError,
 ) -> Result<bool, AppError> {
-    let system = "Tu es un professeur de japonais natif, rigoureux et honnête. Un correcteur \
-                  affirme qu'une phrase d'élève contient une erreur. Vérifie TOI-MÊME, \
-                  caractère par caractère, avant de répondre.\n\
-                  Ne sont JAMAIS des erreurs : écrire un mot en kanji plutôt qu'en kana (ou \
-                  l'inverse) ; l'absence d'espaces ; omettre un sujet évident ; une formulation \
-                  correcte et naturelle différente de la correction.\n\
-                  - analysis : d'abord, vérifie point par point ce que dit le correcteur.\n\
-                  - is_error : true seulement si la phrase de l'élève est réellement fautive.";
+    let system = format!(
+        "Tu es un professeur de japonais natif, rigoureux et honnête. Un correcteur \
+         affirme qu'une phrase d'élève contient une erreur. Vérifie TOI-MÊME, \
+         caractère par caractère, avant de répondre.\n\
+         Ne sont JAMAIS des erreurs : écrire un mot en kanji plutôt qu'en kana (ou \
+         l'inverse) ; l'absence d'espaces ; omettre un sujet évident ; une formulation \
+         correcte et naturelle différente de la correction ; l'absence de marque de pluriel.\n\
+         {NO_PLURAL_IN_JAPANESE}\n\
+         - analysis : d'abord, vérifie point par point ce que dit le correcteur.\n\
+         - is_error : true seulement si la phrase de l'élève est réellement fautive."
+    );
     let user = format!(
         "Conversation :\n{conversation}\n\nPhrase de l'élève : {}\nCorrection proposée : {}\n\
          Explication du correcteur : {}",
@@ -488,7 +493,7 @@ async fn is_real_error(
     let check: ErrorCheck = ollama
         .chat_json(ChatRequest {
             model,
-            system,
+            system: &system,
             turns: &[ChatTurn::user(user)],
             schema: json!({
                 "type": "object",
@@ -571,11 +576,14 @@ pub(crate) async fn translate_message(
         return Err(AppError::Validation("Rien à traduire."));
     }
     let settings = settings::load(pool.inner()).await?;
+    // Toute ma base : le glossaire du traducteur ne contient que les mots de la phrase.
+    let knowledge = items::find_knowledge(pool.inner(), &[]).await?;
     to_french(
         ollama.inner(),
         &settings.ollama_model,
         &settings.translation_model,
         text.trim(),
+        &knowledge,
     )
     .await
 }
@@ -763,6 +771,47 @@ mod tests {
         assert!(prompt.contains("n'utilise pas ces mots, absents de sa liste : みせ"));
     }
 
+    #[test]
+    fn correction_et_bilan_n_exigent_pas_de_pluriel() {
+        let theme = find_theme(Some("cafe")).unwrap();
+        assert!(review_system_prompt(theme, &knowledge()).contains(NO_PLURAL_IN_JAPANESE));
+        assert!(summary_system_prompt(theme, &[]).contains("Jamais le pluriel"));
+    }
+
+    // Réponses justes qu'un francophone pense au pluriel : aucune erreur attendue.
+    // cargo test -- --ignored essai_reel_pluriel_conversation --nocapture
+    #[test]
+    #[ignore]
+    fn essai_reel_pluriel_conversation() {
+        tauri::async_runtime::block_on(async {
+            let ollama = Ollama::new().unwrap();
+            let model = &super::super::knowledge_prompt::test_model();
+            let mut k = knowledge();
+            for (kana, meaning) in [("ねこ", "chat"), ("いぬ", "chien"), ("すき", "aimer")] {
+                k.words.push(KnownWord {
+                    kana: kana.into(),
+                    kanji: None,
+                    meaning: meaning.into(),
+                });
+            }
+            let theme = find_theme(Some("introduction")).unwrap();
+            for (question, answer) in [
+                (
+                    "いぬ と ねこ、どちら が すき です か？",
+                    "ねこ が すき です。",
+                ),
+                ("なに を のみます か？", "コーヒー と おちゃ を のみます。"),
+            ] {
+                let history = [turn(Role::Assistant, question), turn(Role::User, answer)];
+                let review = review_message(&ollama, model, theme, &k, &history)
+                    .await
+                    .unwrap();
+                println!("{question} / {answer} => {review:?}");
+                assert!(review.is_none(), "fausse erreur : {review:?}");
+            }
+        });
+    }
+
     // Vocabulaire réel de la développeuse au 2026-11-23 (8 mots) sur la situation la plus difficile.
     // cargo test -- --ignored essai_reel_petit_vocabulaire --nocapture
     #[test]
@@ -796,7 +845,7 @@ mod tests {
             let theme = find_theme(Some("directions")).unwrap();
             let first = next_message(&ollama, model, theme, &k, &[]).await.unwrap();
             let fr = ollama
-                .translate_ja_to_fr("translategemma:4b", &first.japanese)
+                .translate_ja_to_fr("translategemma:4b", &first.japanese, "")
                 .await
                 .unwrap();
             println!(
@@ -811,7 +860,7 @@ mod tests {
                 .await
                 .unwrap();
             let fr = ollama
-                .translate_ja_to_fr("translategemma:4b", &second.japanese)
+                .translate_ja_to_fr("translategemma:4b", &second.japanese, "")
                 .await
                 .unwrap();
             println!(

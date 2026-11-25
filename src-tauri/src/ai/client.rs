@@ -126,17 +126,27 @@ impl Ollama {
     // Format de consigne imposé par la page du modèle sur ollama.com (deux lignes vides avant
     // le texte). `num_gpu: 0` : il tourne sur le processeur, pour laisser la carte graphique au
     // modèle principal ; sinon Ollama les échange à chaque appel (+16 s mesurées).
+    // `glossary` ("ねこ : chat ; マエル : Maëlle", vide = aucun) : sens des mots de l'élève.
+    // Mesure du 2026-11-25 : sans lui, les noms propres en katakana sont devinés
+    // (ラブヤディス => "Lovey Lady", マエル => "Mael") ; avec, ils sont justes.
     pub(crate) async fn translate_ja_to_fr(
         &self,
         model: &str,
         text: &str,
+        glossary: &str,
     ) -> Result<String, AppError> {
+        let glossary = if glossary.is_empty() {
+            String::new()
+        } else {
+            format!(" Use this glossary: {glossary}.")
+        };
         let content = format!(
             "You are a professional Japanese (ja) to French (fr) translator. Your goal is to \
              accurately convey the meaning and nuances of the original Japanese text while \
              adhering to French grammar, vocabulary, and cultural sensitivities.\n\
              Produce only the French translation, without any additional explanations or \
-             commentary. Please translate the following Japanese text into French:\n\n\n{text}"
+             commentary.{glossary} Please translate the following Japanese text into \
+             French:\n\n\n{text}"
         );
         let body = serde_json::json!({
             "model": model,

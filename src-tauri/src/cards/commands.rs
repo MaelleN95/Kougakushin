@@ -137,7 +137,8 @@ mod tests {
             .unwrap();
         }
         sqlx::query(
-            "INSERT INTO card (item_id, direction) SELECT id, 'fr_jp' FROM item;
+            "INSERT INTO item_meaning (item_id, position, meaning) SELECT id, 0, meaning FROM item;
+             INSERT INTO card (item_id, direction) SELECT id, 'fr_jp' FROM item;
              INSERT INTO card (item_id, direction) SELECT id, 'jp_fr' FROM item;",
         )
         .execute(&pool)
@@ -254,6 +255,7 @@ mod tests {
                 "INSERT INTO book (title) VALUES ('Marugoto A1');
                  INSERT INTO lesson (title, date, book_id) VALUES ('L2', '2026-11-19', 1);
                  INSERT INTO item (lesson_id, kind, kana, meaning) VALUES (2, 'vocab', 'み', 'y');
+                 INSERT INTO item_meaning (item_id, position, meaning) VALUES (4, 0, 'y');
                  INSERT INTO card (item_id, direction) VALUES (4, 'fr_jp'), (4, 'jp_fr');",
             )
             .execute(&pool)

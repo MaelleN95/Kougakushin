@@ -53,7 +53,7 @@ pub(crate) async fn create_item(
     // Si une erreur fait sortir avant commit(), `tx` est abandonnée et annulée automatiquement.
     let mut tx = pool.begin().await?;
     reject_duplicate(&mut tx, &input, None).await?;
-    let row = repository::insert(&mut *tx, &input)
+    let row = repository::insert(&mut tx, &input)
         .await
         .map_err(lesson_not_found_or)?;
     cards::sync_for_item(&mut tx, row.id(), &input.content).await?;
@@ -73,7 +73,7 @@ pub(crate) async fn update_item(
     // Même principe que create_item : élément et cartes modifiés ensemble.
     let mut tx = pool.begin().await?;
     reject_duplicate(&mut tx, &input, Some(id)).await?;
-    let row = repository::update(&mut *tx, id, &input)
+    let row = repository::update(&mut tx, id, &input)
         .await
         .map_err(lesson_not_found_or)?
         .ok_or(AppError::NotFound("Élément"))?;

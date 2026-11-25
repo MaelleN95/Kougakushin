@@ -447,7 +447,7 @@ mod tests {
         KnownWord {
             kana: kana.into(),
             kanji: kanji.map(String::from),
-            meaning: meaning.into(),
+            meanings: vec![meaning.into()],
         }
     }
 

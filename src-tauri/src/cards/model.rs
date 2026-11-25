@@ -166,9 +166,11 @@ pub(super) struct SessionRow {
     kana: Option<String>,
     romaji: Option<String>,
     kanji: Option<String>,
-    meaning: Option<String>,
     example_jp: Option<String>,
     example_fr: Option<String>,
+    // Sens de l'élément (table item_meaning), en tableau JSON décodé par sqlx.
+    #[sqlx(json)]
+    meanings: Vec<String>,
 }
 
 // Carte à réviser, envoyée au front : de quoi poser la question et montrer la réponse.
@@ -180,13 +182,17 @@ pub(crate) struct ReviewCard {
     kana: String,
     romaji: Option<String>,
     kanji: Option<String>,
-    meaning: String,
+    meanings: Vec<String>, // au moins un, dans l'ordre de saisie
     example_jp: Option<String>,
     example_fr: Option<String>,
 }
 
 impl SessionRow {
     pub(super) fn into_review_card(self) -> Result<ReviewCard, AppError> {
+        // Une carte sans sens ne pourrait être ni posée (fr_jp) ni corrigée (jp_fr).
+        if self.meanings.is_empty() {
+            return Err(AppError::InvalidData("meanings"));
+        }
         Ok(ReviewCard {
             card_id: self.card_id,
             direction: Direction::from_db(&self.direction)
@@ -195,7 +201,7 @@ impl SessionRow {
             kana: self.kana.ok_or(AppError::InvalidData("kana"))?,
             romaji: self.romaji,
             kanji: self.kanji,
-            meaning: self.meaning.ok_or(AppError::InvalidData("meaning"))?,
+            meanings: self.meanings,
             example_jp: self.example_jp,
             example_fr: self.example_fr,
         })
@@ -231,7 +237,7 @@ mod tests {
             kana: "たべる".into(),
             romaji: None,
             kanji: kanji.map(String::from),
-            meaning: "manger".into(),
+            meanings: vec!["manger".into()],
             word_type: None,
         }
     }

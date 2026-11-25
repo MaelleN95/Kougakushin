@@ -682,7 +682,7 @@ mod tests {
         let word = |kana: &str, kanji: Option<&str>, meaning: &str| KnownWord {
             kana: kana.into(),
             kanji: kanji.map(String::from),
-            meaning: meaning.into(),
+            meanings: vec![meaning.into()],
         };
         Knowledge {
             words: vec![
@@ -774,7 +774,7 @@ mod tests {
             let w = |kana: &str, kanji: Option<&str>, meaning: &str| KnownWord {
                 kana: kana.into(),
                 kanji: kanji.map(String::from),
-                meaning: meaning.into(),
+                meanings: vec![meaning.into()],
             };
             let k = Knowledge {
                 words: vec![
@@ -836,7 +836,7 @@ mod tests {
                 k.words.push(KnownWord {
                     kana: kana.into(),
                     kanji: kanji.map(String::from),
-                    meaning: meaning.into(),
+                    meanings: vec![meaning.into()],
                 });
             }
             let theme = find_theme(Some("weekend")).unwrap();

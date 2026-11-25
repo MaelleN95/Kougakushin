@@ -3,8 +3,8 @@
 use sqlx::SqlitePool;
 
 use super::model::{
-    Backup, BookRecord, CardRecord, FORMAT, ItemRecord, LessonRecord, ReviewLogRecord,
-    SettingRecord, VERSION,
+    Backup, BookRecord, CardRecord, FORMAT, ItemMeaningRecord, ItemRecord, LessonRecord,
+    ReviewLogRecord, SettingRecord, VERSION,
 };
 
 // Toutes les données, dans l'ordre des id.
@@ -30,6 +30,11 @@ pub(super) async fn snapshot(
             "SELECT id, lesson_id, kind, active, kana, romaji, kanji, meaning, word_type, title,
                     explanation, example_jp, example_fr, created_at, updated_at
              FROM item ORDER BY id",
+        )
+        .fetch_all(pool)
+        .await?,
+        item_meanings: sqlx::query_as::<_, ItemMeaningRecord>(
+            "SELECT item_id, position, meaning FROM item_meaning ORDER BY item_id, position",
         )
         .fetch_all(pool)
         .await?,
@@ -63,6 +68,7 @@ pub(super) async fn replace_all(pool: &SqlitePool, backup: &Backup) -> Result<()
     for delete in [
         "DELETE FROM review_log",
         "DELETE FROM card",
+        "DELETE FROM item_meaning",
         "DELETE FROM item",
         "DELETE FROM lesson",
         "DELETE FROM book",
@@ -116,6 +122,14 @@ pub(super) async fn replace_all(pool: &SqlitePool, backup: &Backup) -> Result<()
         .bind(&i.updated_at)
         .execute(&mut *tx)
         .await?;
+    }
+    for m in &backup.item_meanings {
+        sqlx::query("INSERT INTO item_meaning (item_id, position, meaning) VALUES (?, ?, ?)")
+            .bind(m.item_id)
+            .bind(m.position)
+            .bind(&m.meaning)
+            .execute(&mut *tx)
+            .await?;
     }
     for c in &backup.cards {
         sqlx::query(

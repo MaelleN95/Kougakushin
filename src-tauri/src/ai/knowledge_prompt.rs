@@ -134,6 +134,13 @@ pub(super) fn normalize_japanese(text: &str, knowledge: &Knowledge) -> String {
     normalized
 }
 
+// Pluriel : les noms japonais ne le marquent pas, le français si. Règle pour toute correction
+// d'un japonais écrit par l'élève (traduction vers le japonais, conversation, bilan).
+// Mesure du 2026-11-25 : sans elle, le correcteur exige ou invente des marques de pluriel.
+pub(super) const NO_PLURAL_IN_JAPANESE: &str = "Le japonais ne marque pas le pluriel des noms \
+    (ねこ = un chat ou des chats) : n'exige jamais たち, un nombre ou une autre marque de pluriel, \
+    et ne compte jamais son absence comme une erreur.";
+
 pub(super) fn truncate(text: &str, max_chars: usize) -> String {
     match text.char_indices().nth(max_chars) {
         Some((byte_index, _)) => format!("{}...", &text[..byte_index]),

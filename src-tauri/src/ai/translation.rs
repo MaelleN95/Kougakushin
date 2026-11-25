@@ -7,8 +7,8 @@ use tauri::State;
 
 use super::client::{ChatRequest, ChatTurn, Ollama};
 use super::knowledge_prompt::{
-    is_kanji, kanji_reminder, knowledge_rules, normalize_japanese, pick_index, unknown_words,
-    writing_rule,
+    NO_PLURAL_IN_JAPANESE, is_kanji, kanji_reminder, knowledge_rules, normalize_japanese,
+    pick_index, unknown_words, writing_rule,
 };
 use super::to_french::to_french;
 use crate::error::AppError;
@@ -262,6 +262,21 @@ fn correction_system_prompt(exercise: &TranslationExercise) -> String {
         }
         TranslationDirection::JpFr => "",
     };
+    // Mesure du 2026-11-25 (vraie base) : vers le français, "Ce sont les chats de Jonathan"
+    // pour ジョナタン の ねこ です était jugé faux ("です est au singulier", ce qui est inexact),
+    // et "Mon pays, c'est la France." jugé presque juste.
+    let direction_rule = match exercise.direction {
+        TranslationDirection::FrJp => format!("- {NO_PLURAL_IN_JAPANESE}\n"),
+        TranslationDirection::JpFr => "- Le japonais ne marque ni le nombre ni l'article. Si \
+             la phrase japonaise ne précise pas le nombre (pas de chiffre, たち, たくさん...), le \
+             singulier ET le pluriel sont justes (ねこ = le chat, un chat, les chats, des chats), \
+             avec un article défini ou indéfini. です ne dit rien du nombre. Une différence de \
+             nombre ou d'article n'est alors jamais une erreur.\n\
+             - Juge le sens, pas la tournure : une phrase française naturelle qui dit la même \
+             chose est correcte même si sa construction diffère de la référence (ex. 'Mon pays, \
+             c'est la France.' = 'Mon pays est la France.').\n"
+            .to_string(),
+    };
     format!(
         "Tu es un professeur de japonais expérimenté, de langue maternelle japonaise. \
          Tu corriges la traduction d'une élève francophone, avec l'exigence d'un bon professeur.\n\
@@ -271,6 +286,7 @@ fn correction_system_prompt(exercise: &TranslationExercise) -> String {
          s'il est correct et naturel.\n\
          - Vérifie précisément : particules, conjugaison (temps, négation, forme polie), \
          ordre des mots, choix du mot, sens exact (rien d'ajouté, rien d'oublié).\n\
+         {direction_rule}\
          Réponds :\n\
          - analysis : D'ABORD, compare mot par mot la traduction de l'élève à la phrase à \
          traduire. Recopie chaque mot de l'élève et dis s'il est juste. Ne signale un oubli que \
@@ -294,9 +310,14 @@ fn correction_user_prompt(exercise: &TranslationExercise, answer: &str) -> Strin
              Traduction de l'élève : {answer}",
             exercise.french, exercise.japanese
         ),
+        // Rappel du nombre ici, près des phrases : placé seulement dans les consignes, il était
+        // ignoré (mesure du 2026-11-25, 3 pluriels justes sur 3 jugés faux).
         TranslationDirection::JpFr => format!(
             "Phrase à traduire (japonais) : {}\nTraduction de référence : {}\n\
-             Traduction de l'élève : {answer}",
+             Traduction de l'élève : {answer}\n\
+             Rappel : la référence a choisi un nombre (singulier ou pluriel) et un article au \
+             hasard. Sauf si le japonais précise le nombre, l'autre choix est tout aussi juste : \
+             ne le corrige pas, et garde le nombre choisi par l'élève dans ta correction.",
             exercise.japanese, exercise.french
         ),
     }
@@ -492,7 +513,95 @@ fn invented_words(
         .collect()
 }
 
+// Vrai si la phrase japonaise précise un nombre (chiffre, たち, compteur courant) : le
+// singulier et le pluriel français ne sont alors plus interchangeables.
+fn japanese_states_number(japanese: &str) -> bool {
+    const MARKERS: [&str; 7] = [
+        "たち",
+        "達",
+        "ひとつ",
+        "ふたつ",
+        "ひとり",
+        "ふたり",
+        "みっつ",
+    ];
+    japanese.chars().any(|c| {
+        c.is_ascii_digit() || ('０'..='９').contains(&c) || "一二三四五六七八九十百千".contains(c)
+    }) || MARKERS.iter().any(|m| japanese.contains(m))
+}
+
+// Forme d'une phrase française sans le nombre ni l'article, pour comparer deux traductions
+// qui ne diffèrent que par là ("Ce sont les chats." / "C'est le chat."). Volontairement
+// grossière : elle ne sert qu'à transformer un verdict en "correct", jamais l'inverse ;
+// une comparaison ratée laisse simplement le verdict de l'IA.
+fn without_number(french: &str) -> String {
+    // \u{2019} : apostrophe typographique, que le clavier peut produire.
+    let lower = french.to_lowercase().replace(['\u{2019}', '\''], "' ");
+    let mut words: Vec<String> = Vec::new();
+    for raw in lower.split(|c: char| c.is_whitespace() || ".,;:!?\"()".contains(c)) {
+        let word = match raw {
+            "" => continue,
+            "le" | "la" | "les" | "l'" | "un" | "une" | "des" => "(article)".to_string(),
+            "sont" => "est".to_string(),
+            // Pluriel régulier : -s / -x final retiré (mots de plus de 3 lettres).
+            w if w.chars().count() > 3 && (w.ends_with('s') || w.ends_with('x')) => {
+                w[..w.len() - 1].to_string()
+            }
+            w => w.to_string(),
+        };
+        words.push(word);
+    }
+    // "ce sont" et "est-ce" (question) => "c' est" (forme de "c'est", apostrophe séparée).
+    words
+        .join(" ")
+        .replace("ce est", "c' est")
+        .replace("est-ce", "c' est")
+}
+
+// Correction de l'IA, puis garde-fous du code (testés ensemble par les essais réels).
 async fn correct_with(
+    ollama: &Ollama,
+    model: &str,
+    exercise: &TranslationExercise,
+    answer: &str,
+    knowledge: &Knowledge,
+) -> Result<Correction, AppError> {
+    let mut correction = ask_correction(ollama, model, exercise, answer, knowledge).await?;
+
+    // Garde-fou : l'IA juge parfois fausse une réponse identique à sa propre correction
+    // (espaces, ponctuation ou kanji / kana mis à part). Le code la remet à "correct".
+    if exercise.direction == TranslationDirection::FrJp
+        && correction.verdict != Verdict::Correct
+        && normalize_japanese(answer, knowledge)
+            == normalize_japanese(&correction.correction, knowledge)
+    {
+        log::info!("Verdict corrigé en 'correct' (réponse identique) : {answer}");
+        correction.verdict = Verdict::Correct;
+        correction.explanation =
+            "Ta traduction est correcte (elle correspond à la correction proposée).".into();
+    }
+
+    // Garde-fou du pluriel (vers le français) : réponse identique à la référence au nombre et
+    // à l'article près, alors que le japonais ne précise pas le nombre.
+    // Mesure du 2026-11-25 : malgré les consignes, 2 pluriels justes sur 5 restaient refusés.
+    // Comparaison avec la référence SEULEMENT : la correction de l'IA recopie parfois une
+    // réponse fausse ("les voitures de Jonathan" pour マエル の くるま), qui serait validée.
+    if exercise.direction == TranslationDirection::JpFr
+        && correction.verdict != Verdict::Correct
+        && !japanese_states_number(&exercise.japanese)
+        && without_number(answer) == without_number(&exercise.french)
+    {
+        log::info!("Verdict corrigé en 'correct' (nombre ou article seulement) : {answer}");
+        correction.verdict = Verdict::Correct;
+        correction.correction = answer.to_string();
+        correction.explanation = "Ta traduction est correcte : le japonais ne précise pas \
+            le nombre, le singulier et le pluriel (avec leur article) sont tous deux justes."
+            .into();
+    }
+    Ok(correction)
+}
+
+async fn ask_correction(
     ollama: &Ollama,
     model: &str,
     exercise: &TranslationExercise,
@@ -594,22 +703,7 @@ pub(crate) async fn correct_translation(
     }
     let model = settings::load(pool.inner()).await?.ollama_model;
     let knowledge = items::find_knowledge(pool.inner(), &[]).await?; // toute ma base
-    let mut correction =
-        correct_with(ollama.inner(), &model, &exercise, answer.trim(), &knowledge).await?;
-
-    // Garde-fou : l'IA juge parfois fausse une réponse identique à sa propre correction
-    // (espaces, ponctuation ou kanji / kana mis à part). Le code la remet à "correct".
-    if exercise.direction == TranslationDirection::FrJp
-        && correction.verdict != Verdict::Correct
-        && normalize_japanese(answer.trim(), &knowledge)
-            == normalize_japanese(&correction.correction, &knowledge)
-    {
-        log::info!("Verdict corrigé en 'correct' (réponse identique) : {answer}");
-        correction.verdict = Verdict::Correct;
-        correction.explanation =
-            "Ta traduction est correcte (elle correspond à la correction proposée).".into();
-    }
-    Ok(correction)
+    correct_with(ollama.inner(), &model, &exercise, answer.trim(), &knowledge).await
 }
 
 #[cfg(test)]
@@ -682,6 +776,60 @@ mod tests {
             ..Knowledge::default()
         };
         assert!(generation_system_prompt(&no_kanji).contains("N'utilise AUCUN kanji."));
+    }
+
+    #[test]
+    fn pluriel_et_article_ignores_mais_pas_le_reste() {
+        let same = |a: &str, b: &str| without_number(a) == without_number(b);
+        assert!(same(
+            "Ce sont les voitures de Maëlle.",
+            "C'est la voiture de Maëlle."
+        ));
+        assert!(same(
+            "Ce sont des hôtels de Tokyo ?",
+            "C'est un hôtel de Tokyo ?"
+        ));
+        assert!(same("Les chats de Jonathan", "le chat de Jonathan"));
+        assert!(same(
+            "Ce sont des hôtels de Tokyo ?",
+            "Est-ce un hôtel de Tokyo ?"
+        ));
+        // Autre mot, article manquant, autre personne : différents.
+        assert!(!same(
+            "Ce sont les chats de Maëlle.",
+            "C'est la voiture de Maëlle."
+        ));
+        assert!(!same("Mon pays est France.", "Mon pays est la France."));
+        assert!(!same(
+            "C'est la voiture de Jonathan.",
+            "C'est la voiture de Maëlle."
+        ));
+    }
+
+    #[test]
+    fn nombre_precise_en_japonais() {
+        assert!(!japanese_states_number("マエル の くるま です"));
+        assert!(japanese_states_number("ともだち たち です"));
+        assert!(japanese_states_number("ねこ が 2 ひき います"));
+        assert!(japanese_states_number("ねこ が 三 びき います"));
+    }
+
+    #[test]
+    fn consignes_de_correction_sur_le_pluriel() {
+        let exercise = |direction| TranslationExercise {
+            direction,
+            japanese: "マエル の くるま です".into(),
+            french: "C'est la voiture de Maëlle.".into(),
+            unknown_words: vec![],
+        };
+        let to_french = exercise(TranslationDirection::JpFr);
+        assert!(correction_system_prompt(&to_french).contains("le singulier ET le pluriel"));
+        assert!(
+            correction_user_prompt(&to_french, "x").contains("l'autre choix est tout aussi juste")
+        );
+        let to_japanese = exercise(TranslationDirection::FrJp);
+        assert!(correction_system_prompt(&to_japanese).contains(NO_PLURAL_IN_JAPANESE));
+        assert!(!correction_system_prompt(&to_japanese).contains("le singulier ET le pluriel"));
     }
 
     #[test]
@@ -876,6 +1024,177 @@ mod tests {
                     previous.remove(0);
                 }
             }
+        });
+    }
+
+    // Corrections de réponses justes, presque justes et fausses, dans les deux sens, avec la
+    // vraie base (copie, lecture seule). Verdict attendu entre crochets.
+    // KOUGAKUSHIN_DB=chemin/copie.db cargo test -- --ignored essai_reel_corrections --nocapture
+    #[test]
+    #[ignore]
+    fn essai_reel_corrections() {
+        tauri::async_runtime::block_on(async {
+            let path = std::env::var("KOUGAKUSHIN_DB").unwrap();
+            let pool = sqlx::sqlite::SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect(&format!("sqlite://{path}?mode=ro"))
+                .await
+                .unwrap();
+            let knowledge = items::find_knowledge(&pool, &[]).await.unwrap();
+            let ollama = Ollama::new().unwrap();
+            let model = &super::super::knowledge_prompt::test_model();
+            // (sens, japonais, français, [(réponse, verdict attendu)])
+            type Case<'a> = (
+                TranslationDirection,
+                &'a str,
+                &'a str,
+                &'a [(&'a str, &'a str)],
+            );
+            let cases: [Case; 8] = [
+                (
+                    TranslationDirection::JpFr,
+                    "わたし の くに は フランス です",
+                    "Mon pays est la France.",
+                    &[
+                        ("Mon pays, c'est la France.", "correct"),
+                        ("Mon pays est France.", "almost"),
+                        ("Je suis en France.", "wrong"),
+                    ],
+                ),
+                (
+                    TranslationDirection::JpFr,
+                    "ジョナタン の ねこ です",
+                    "C'est le chat de Jonathan.",
+                    &[
+                        ("C'est le chat de Jonathan", "correct"),
+                        ("Ce sont les chats de Jonathan.", "correct"),
+                        ("C'est le chien de Jonathan.", "wrong"),
+                    ],
+                ),
+                (
+                    TranslationDirection::JpFr,
+                    "マエル の くるま です",
+                    "C'est la voiture de Maëlle.",
+                    &[
+                        ("Ce sont les voitures de Maëlle.", "correct"),
+                        ("Ce sont les voitures de Jonathan.", "wrong"),
+                        ("Ce sont les chats de Maëlle.", "wrong"),
+                    ],
+                ),
+                (
+                    TranslationDirection::JpFr,
+                    "とうきょう の ホテル です か",
+                    "Est-ce un hôtel de Tokyo ?",
+                    &[
+                        ("C'est un hôtel à Tokyo ?", "correct"),
+                        ("Ce sont des hôtels de Tokyo ?", "correct"),
+                        ("C'est l'hôtel de Kyoto ?", "wrong"),
+                    ],
+                ),
+                (
+                    TranslationDirection::FrJp,
+                    "わたし の くに は フランス です",
+                    "Mon pays est la France.",
+                    &[
+                        ("わたしのくにはフランスです", "correct"),
+                        ("わたし は くに の フランス です", "wrong"),
+                    ],
+                ),
+                (
+                    TranslationDirection::FrJp,
+                    "ジョナタン の ねこ です",
+                    "Ce sont les chats de Jonathan.",
+                    &[
+                        ("ジョナタン の ねこ です", "correct"),
+                        ("ねこ の ジョナタン です", "wrong"),
+                    ],
+                ),
+                (
+                    TranslationDirection::FrJp,
+                    "あさ の コーヒー です",
+                    "C'est le café du matin.",
+                    &[
+                        ("あさ の コーヒー です", "correct"),
+                        ("あさ の コーヒー", "almost"),
+                        ("コーヒー の あさ です", "wrong"),
+                    ],
+                ),
+                (
+                    TranslationDirection::FrJp,
+                    "いぬ と ねこ です",
+                    "Ce sont des chiens et des chats.",
+                    &[
+                        ("いぬ と ねこ です", "correct"),
+                        ("いぬ と ねこ と です", "almost"),
+                    ],
+                ),
+            ];
+            let (mut good, mut total) = (0, 0);
+            for (direction, japanese, french, answers) in cases {
+                let exercise = TranslationExercise {
+                    direction,
+                    japanese: japanese.into(),
+                    french: french.into(),
+                    unknown_words: vec![],
+                };
+                for (answer, expected) in answers {
+                    let c = correct_with(&ollama, model, &exercise, answer, &knowledge)
+                        .await
+                        .unwrap();
+                    let got = serde_json::to_value(c.verdict).unwrap();
+                    let ok = got == *expected;
+                    total += 1;
+                    good += usize::from(ok);
+                    println!(
+                        "{} {japanese} / {french} | {answer} [{expected}] => {got} | {} | {}",
+                        if ok { "OK" } else { "XX" },
+                        c.correction,
+                        c.explanation
+                    );
+                }
+            }
+            println!("{good}/{total} verdicts attendus");
+        });
+    }
+
+    // Pluriel (sans base réelle) : "les voitures" pour くるま est juste dans les deux sens.
+    // cargo test -- --ignored essai_reel_pluriel --nocapture
+    #[test]
+    #[ignore]
+    fn essai_reel_pluriel() {
+        tauri::async_runtime::block_on(async {
+            let ollama = Ollama::new().unwrap();
+            let model = &super::super::knowledge_prompt::test_model();
+            let mut k = knowledge();
+            k.words.push(word("くるま", None, "voiture"));
+            k.words.push(word("マエル", None, "Maëlle"));
+            let to_french = TranslationExercise {
+                direction: TranslationDirection::JpFr,
+                japanese: "マエル の くるま です".into(),
+                french: "C'est la voiture de Maëlle.".into(),
+                unknown_words: vec![],
+            };
+            let c = correct_with(
+                &ollama,
+                model,
+                &to_french,
+                "Ce sont les voitures de Maëlle.",
+                &k,
+            )
+            .await
+            .unwrap();
+            println!("vers le français : {c:?}");
+            assert_eq!(c.verdict, Verdict::Correct, "{c:?}");
+            let to_japanese = TranslationExercise {
+                direction: TranslationDirection::FrJp,
+                french: "Ce sont les voitures de Maëlle.".into(),
+                ..to_french
+            };
+            let c = correct_with(&ollama, model, &to_japanese, "マエル の くるま です", &k)
+                .await
+                .unwrap();
+            println!("vers le japonais : {c:?}");
+            assert_eq!(c.verdict, Verdict::Correct, "{c:?}");
         });
     }
 

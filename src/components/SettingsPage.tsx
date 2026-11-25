@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api, errorMessage } from "../api";
 import type { OllamaStatus, Settings } from "../types";
 import BackupSection from "./BackupSection";
+import KnownFormsSection from "./KnownFormsSection";
 
 export default function SettingsPage() {
   // null tant que les réglages ne sont pas chargés.
@@ -151,6 +152,8 @@ export default function SettingsPage() {
 
       {message && <p className="text-sm text-stone-600">{message}</p>}
       {error && <p className="error">{error}</p>}
+
+      <KnownFormsSection />
 
       <BackupSection
         onImported={() => api.getSettings().then(setSettings).catch((e) => setError(errorMessage(e)))}

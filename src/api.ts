@@ -6,6 +6,8 @@ import type {
   Book,
   BookInput,
   ChatTurn,
+  ConjugatedForm,
+  ConjugationFormState,
   ConversationStart,
   ConversationSummary,
   Correction,
@@ -25,6 +27,9 @@ import type {
   ThemeInfo,
   TranslationDirection,
   TranslationExercise,
+  VerbForm,
+  VerbType,
+  VerbWarning,
 } from "./types";
 
 export const api = {
@@ -57,6 +62,15 @@ export const api = {
     invoke<ReviewSession>("get_review_session", { ...scope, extraNew }),
   reviewCard: (cardId: number, rating: ReviewRating) =>
     invoke<ReviewResult>("review_card", { cardId, rating }),
+
+  // Tableau de conjugaison calculé par Rust ; erreur si la terminaison ne va pas avec le type.
+  conjugateVerb: (kana: string, kanji: string | null, verbType: VerbType) =>
+    invoke<ConjugatedForm[]>("conjugate_verb", { kana, kanji, verbType }),
+  listConjugationForms: () => invoke<ConjugationFormState[]>("list_conjugation_forms"),
+  // Désactiver une forme supprime ses cartes (et leur progression).
+  setConjugationFormKnown: (form: VerbForm, known: boolean) =>
+    invoke<ConjugationFormState[]>("set_conjugation_form_known", { form, known }),
+  listVerbWarnings: () => invoke<VerbWarning[]>("list_verb_warnings"),
 
   getSettings: () => invoke<Settings>("get_settings"),
   updateSettings: (settings: Settings) => invoke<Settings>("update_settings", { settings }),

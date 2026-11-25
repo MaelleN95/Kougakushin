@@ -6,6 +6,7 @@ import { api, errorMessage } from "../api";
 import { groupLessons } from "../lessonGroups";
 import type { Book, Lesson, ReviewCard, ReviewRating, ReviewScope } from "../types";
 import LessonOptions from "./LessonOptions";
+import MeaningTags from "./MeaningTags";
 import { shuffled } from "../utils";
 
 const RATINGS: { rating: ReviewRating; label: string; key: string; className: string }[] = [
@@ -26,7 +27,7 @@ const DEFAULT_EXTRA_STEP = 10;
 function Question({ card }: { card: ReviewCard }) {
   switch (card.direction) {
     case "fr_jp":
-      return <p className="text-3xl">{card.meaning}</p>;
+      return <MeaningTags meanings={card.meanings} size="lg" centered />;
     case "jp_fr":
       return <p className="text-4xl">{card.kana}</p>;
     case "kanji_read":
@@ -45,7 +46,7 @@ function Answer({ card, showRomaji }: { card: ReviewCard; showRomaji: boolean })
           <span className="ml-3 text-base text-stone-400">{card.romaji}</span>
         )}
       </p>
-      <p className="text-lg">{card.meaning}</p>
+      <MeaningTags meanings={card.meanings} size="md" centered />
       {card.example_jp && (
         <p className="text-sm">
           {card.example_jp}

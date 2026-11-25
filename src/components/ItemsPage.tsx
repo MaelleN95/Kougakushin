@@ -6,6 +6,7 @@ import { groupLessons } from "../lessonGroups";
 import type { Book, Item, ItemFilter, ItemKind, Lesson } from "../types";
 import ItemForm, { WORD_TYPE_LABELS } from "./ItemForm";
 import LessonOptions from "./LessonOptions";
+import MeaningTags from "./MeaningTags";
 import SelectionBar from "./SelectionBar";
 
 export default function ItemsPage() {
@@ -224,7 +225,9 @@ export default function ItemsPage() {
                         <span className="ml-2 text-sm text-stone-400">{item.content.romaji}</span>
                       )}
                     </p>
-                    <p>{item.content.meaning}</p>
+                    <div className="mt-1">
+                      <MeaningTags meanings={item.content.meanings} />
+                    </div>
                     {item.content.word_type && (
                       <p className="text-sm text-stone-500">
                         {WORD_TYPE_LABELS[item.content.word_type]}
